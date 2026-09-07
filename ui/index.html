@@ -1,0 +1,1023 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gong Transcript Puller</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --bg-grad: radial-gradient(1200px 700px at 15% -10%, #1a1f35 0%, transparent 60%),
+               radial-gradient(1000px 600px at 110% 10%, #1d1630 0%, transparent 55%);
+    --surface: #12151d;
+    --surface-2: #171b25;
+    --line: #252a38;
+    --line-soft: #1d222e;
+    --text: #e7eaf3;
+    --muted: #8f97ad;
+    --faint: #5f6779;
+    --accent: #7c6cf5;
+    --accent-2: #4dd6c1;
+    --accent-soft: #7c6cf522;
+    --ok: #48c78e;
+    --warn: #e9b949;
+    --bad: #ef5f6b;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    --r: 12px;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f4f5f9;
+      --bg-grad: radial-gradient(1200px 700px at 15% -10%, #e5e6f7 0%, transparent 60%),
+                 radial-gradient(1000px 600px at 110% 10%, #eee6f9 0%, transparent 55%);
+      --surface: #ffffff;
+      --surface-2: #f7f8fc;
+      --line: #dfe2ec;
+      --line-soft: #e9ecf3;
+      --text: #1a1d27;
+      --muted: #5f6779;
+      --faint: #8f97ad;
+      --accent-soft: #7c6cf518;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--bg);
+    background-image: var(--bg-grad);
+    background-attachment: fixed;
+    color: var(--text);
+    font: 14px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* ---------- stages ---------- */
+  .stage { display: none; }
+  .stage.active { display: block; animation: rise .45s cubic-bezier(.2,.8,.2,1) both; }
+  .stage.leaving { animation: sink .3s ease both; }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  @keyframes sink { from { opacity: 1; } to { opacity: 0; transform: translateY(-10px) scale(.99); } }
+
+  /* ---------- boot ---------- */
+  #boot {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background: var(--bg); background-image: var(--bg-grad); z-index: 50;
+    transition: opacity .5s ease, visibility .5s;
+  }
+  #boot.gone { opacity: 0; visibility: hidden; }
+
+  .boot-inner { text-align: center; }
+
+  .orb {
+    width: 76px; height: 76px; margin: 0 auto 22px; position: relative;
+  }
+  .orb i {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid transparent;
+    border-top-color: var(--accent);
+    border-right-color: var(--accent-2);
+    animation: spin 1.1s linear infinite;
+  }
+  .orb i:nth-child(2) { inset: 11px; animation-duration: 1.6s; animation-direction: reverse; opacity: .7; }
+  .orb i:nth-child(3) { inset: 22px; animation-duration: 2.2s; opacity: .45; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .boot-title { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+
+  /* ---------- header ---------- */
+  header { margin-bottom: 30px; }
+  h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -.02em; font-weight: 620; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 0; }
+  .sub code { font-family: var(--mono); font-size: 12.5px; color: var(--accent-2); }
+
+  /* ---------- cards ---------- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 20px 22px;
+    margin-bottom: 16px;
+  }
+  .card > h2 {
+    margin: 0 0 4px; font-size: 12px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .card > .hint { margin: 0 0 18px; color: var(--faint); font-size: 12.5px; }
+
+  /* ---------- fields ---------- */
+  .grid { display: grid; gap: 14px 16px; }
+  .grid.two { grid-template-columns: 1fr 1fr; }
+  .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 720px) { .grid.two, .grid.three { grid-template-columns: 1fr; } }
+
+  .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .field > label { font-size: 12.5px; font-weight: 560; color: var(--text); }
+  .field > .note { font-size: 11.5px; color: var(--faint); }
+  .field.wide { grid-column: 1 / -1; }
+
+  input[type=text], input[type=date], input[type=number], textarea, select {
+    width: 100%; padding: 9px 11px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    font: 13px/1.45 var(--sans);
+    transition: border-color .16s, box-shadow .16s, background .16s;
+  }
+  input.mono, textarea.mono, select.mono { font-family: var(--mono); font-size: 12.5px; }
+
+  input:focus, textarea:focus, select:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  input::placeholder, textarea::placeholder { color: var(--faint); }
+
+  textarea { resize: vertical; min-height: 84px; line-height: 1.5; word-break: break-all; }
+  textarea.masked { -webkit-text-security: disc; text-security: disc; }
+
+  select {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 32px;
+  }
+
+  .row { display: flex; align-items: center; gap: 8px; }
+  .row > input, .row > select { flex: 1; min-width: 0; }
+
+  /* ---------- buttons ---------- */
+  button {
+    font: 13px/1 var(--sans); font-weight: 560;
+    border-radius: 8px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--text);
+    padding: 9px 14px; cursor: pointer;
+    transition: transform .12s, border-color .16s, background .16s, opacity .16s;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+
+  button.primary {
+    background: linear-gradient(135deg, var(--accent), #6a5ae0);
+    border-color: transparent; color: #fff; padding: 11px 22px; font-size: 14px;
+    box-shadow: 0 6px 20px -8px var(--accent);
+  }
+  button.ghost { background: transparent; }
+  button.tiny { padding: 7px 10px; font-size: 12px; }
+
+  /* ---------- segmented ---------- */
+  .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 3px; }
+  .seg button {
+    border: none; background: transparent; color: var(--muted);
+    padding: 7px 14px; border-radius: 7px; font-size: 12.5px;
+  }
+  .seg button[aria-selected=true] { background: var(--accent); color: #fff; }
+  .seg button:hover { border: none; color: var(--text); }
+  .seg button[aria-selected=true]:hover { color: #fff; }
+
+  /* ---------- toggle ---------- */
+  .check { display: flex; align-items: flex-start; gap: 9px; cursor: pointer; }
+  .check input { appearance: none; margin: 1px 0 0; width: 34px; height: 20px; flex: none;
+    background: var(--line); border-radius: 20px; position: relative; cursor: pointer; transition: background .18s; }
+  .check input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px;
+    background: #fff; border-radius: 50%; transition: transform .18s; }
+  .check input:checked { background: var(--accent); }
+  .check input:checked::after { transform: translateX(14px); }
+  .check .txt { font-size: 12.5px; }
+  .check .txt small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
+
+  /* ---------- actions bar ---------- */
+  .actions {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding-top: 4px;
+  }
+  .actions .spacer { flex: 1; }
+
+  .banner {
+    border-radius: 8px; padding: 10px 13px; font-size: 12.5px;
+    border: 1px solid var(--line); background: var(--surface-2);
+    margin-bottom: 14px; display: none;
+  }
+  .banner.show { display: block; animation: rise .3s ease both; }
+  .banner.bad { border-color: #ef5f6b55; background: #ef5f6b12; color: #ff9aa2; }
+  .banner.good { border-color: #48c78e55; background: #48c78e12; color: #7fe0b0; }
+
+  /* ---------- fetch scene ---------- */
+  .scene {
+    position: relative; height: 190px; margin: 4px 0 26px;
+    border-radius: var(--r); overflow: hidden;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+    border: 1px solid var(--line);
+  }
+  .scene svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  .pkt { opacity: 0; }
+  .running .pkt { animation: fly 2.6s linear infinite; }
+  .running .pkt:nth-child(1) { animation-delay: 0s; }
+  .running .pkt:nth-child(2) { animation-delay: .43s; }
+  .running .pkt:nth-child(3) { animation-delay: .86s; }
+  .running .pkt:nth-child(4) { animation-delay: 1.3s; }
+  .running .pkt:nth-child(5) { animation-delay: 1.73s; }
+  .running .pkt:nth-child(6) { animation-delay: 2.16s; }
+  @keyframes fly {
+    0%   { opacity: 0; transform: translateX(150px) scaleX(.6); }
+    10%  { opacity: 1; transform: translateX(210px) scaleX(1); }
+    85%  { opacity: 1; }
+    100% { opacity: 0; transform: translateX(735px) scaleX(.6); }
+  }
+
+  .flow { stroke-dashoffset: 0; }
+  .running .flow { animation: flow 1s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -14; } }
+
+  .pulse { transform-origin: 150px 95px; }
+  .running .pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { transform: scale(1); opacity: .26; } 50% { transform: scale(1.35); opacity: .05; } }
+
+  .ring-track { stroke: var(--line); }
+  .ring-fill { stroke: var(--accent-2); transition: stroke-dashoffset .45s cubic-bezier(.2,.8,.2,1); }
+
+  .scene-label {
+    position: absolute; left: 0; right: 0; bottom: 14px; text-align: center;
+    font-size: 12px; color: var(--muted); letter-spacing: .05em;
+  }
+  .scene-count {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font: 600 22px/1 var(--mono); color: var(--text); pointer-events: none;
+  }
+  .scene-count small { display: block; text-align: center; font: 400 10.5px/1.6 var(--sans); color: var(--faint); letter-spacing: .1em; text-transform: uppercase; }
+
+  /* ---------- steps ---------- */
+  .steps { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+  .step {
+    font-size: 11.5px; padding: 6px 11px; border-radius: 20px;
+    border: 1px solid var(--line); color: var(--faint);
+    display: flex; align-items: center; gap: 7px;
+    transition: color .25s, border-color .25s, background .25s;
+  }
+  .step .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line); transition: background .25s; }
+  .step.on { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+  .step.on .dot { background: var(--accent); animation: blink 1.1s ease-in-out infinite; }
+  .step.done { color: var(--muted); border-color: var(--line-soft); }
+  .step.done .dot { background: var(--ok); }
+  @keyframes blink { 50% { opacity: .25; } }
+
+  /* ---------- day groups ---------- */
+  .days { display: flex; flex-direction: column; gap: 14px; }
+  .day {
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    background: var(--surface); animation: rise .35s ease both;
+  }
+  .day > .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; background: var(--surface-2);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .day .folder { color: var(--accent-2); flex: none; }
+  .day .name { font: 600 13px/1 var(--mono); }
+  .day .n { margin-left: auto; font-size: 11.5px; color: var(--faint); }
+
+  .item {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 14px; border-top: 1px solid var(--line-soft);
+    font-size: 12.5px; animation: rise .3s ease both;
+  }
+  .item:first-child { border-top: none; }
+  .item .mark { flex: none; width: 15px; height: 15px; margin-top: 1px; }
+  .item .body { min-width: 0; flex: 1; }
+  .item .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .p { display: block; font: 11px/1.5 var(--mono); color: var(--faint);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .item.pending .t { color: var(--muted); }
+  .item.failed .t { color: var(--bad); }
+  .item.skipped .t { color: var(--warn); }
+
+  .spinner { animation: spin .9s linear infinite; transform-origin: center; }
+
+  /* ---------- summary ---------- */
+  .tally { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .pill {
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+    background: var(--surface); min-width: 96px;
+  }
+  .pill b { display: block; font: 600 22px/1.2 var(--mono); }
+  .pill span { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .09em; }
+  .pill.ok b { color: var(--ok); }
+  .pill.skip b { color: var(--warn); }
+  .pill.fail b { color: var(--bad); }
+
+  .outpath {
+    font: 12px/1.5 var(--mono); color: var(--muted);
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 13px; margin-bottom: 20px;
+    overflow-x: auto; white-space: nowrap;
+  }
+
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 11.5px; color: var(--faint); margin-bottom: 18px; }
+  .meta b { color: var(--muted); font-weight: 500; font-family: var(--mono); }
+
+  footer { margin-top: 26px; font-size: 11.5px; color: var(--faint); line-height: 1.7; }
+  footer code { font-family: var(--mono); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    .stage.active, .day, .item { animation: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="boot">
+  <div class="boot-inner">
+    <div class="orb"><i></i><i></i><i></i></div>
+    <div class="boot-title">Reading gong.env</div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ================= FORM ================= -->
+  <section class="stage" id="s-form">
+    <header>
+      <h1>Gong Transcript Puller</h1>
+      <p class="sub">Every field is prefilled from <code>gong.env</code>. Nothing leaves this machine.</p>
+    </header>
+
+    <div class="banner" id="err"></div>
+
+    <div class="card">
+      <h2>Session</h2>
+      <p class="hint">DevTools → Network → any app.gong.io request → Copy as cURL → lift the <code>Cookie:</code> header.</p>
+      <div class="grid">
+        <div class="field wide">
+          <label for="cookie">GONG_COOKIE</label>
+          <textarea id="cookie" class="mono masked" spellcheck="false" placeholder="_ga=…; g-session=…; cf_clearance=…"></textarea>
+          <div class="row">
+            <button class="tiny ghost" id="reveal" type="button">Reveal</button>
+            <span class="note" id="cookie-meta"></span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="host">GONG_HOST</label>
+          <input type="text" id="host" class="mono" placeholder="us-81357.app.gong.io">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Namespaces</h2>
+      <p class="hint">Four distinct ID spaces — company → workspace → account → call. Leave a field blank to auto-detect it.</p>
+      <div class="grid two">
+        <div class="field">
+          <label for="workspace">GONG_WORKSPACE_ID</label>
+          <div class="row">
+            <select id="workspace" class="mono"></select>
+            <button class="tiny" id="detect" type="button">Detect</button>
+          </div>
+          <span class="note">Not global — you have more than one.</span>
+        </div>
+        <div class="field">
+          <label for="user">GONG_USER_ID</label>
+          <input type="text" id="user" class="mono" placeholder="blank → read from CSRF token">
+          <span class="note">Yours. Blank is recommended.</span>
+        </div>
+        <div class="field">
+          <label for="account">GONG_ACCOUNT_ID</label>
+          <input type="text" id="account" class="mono" placeholder="8432685238695217670">
+          <span class="note">A CRM account, used by Account mode.</span>
+        </div>
+        <div class="field">
+          <label for="accountName">Account name lookup</label>
+          <input type="text" id="accountName" placeholder="Creative Networking Consulting Limited">
+          <span class="note">Overrides the ID above when filled.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>What to pull</h2>
+      <p class="hint">Your own calls, everything on one account, or specific call IDs.</p>
+
+      <div class="grid">
+        <div class="field wide">
+          <div class="seg" id="mode" role="tablist">
+            <button role="tab" data-mode="me" aria-selected="true">My calls</button>
+            <button role="tab" data-mode="account" aria-selected="false">Account</button>
+            <button role="tab" data-mode="call" aria-selected="false">Call IDs</button>
+          </div>
+        </div>
+
+        <div class="field wide" id="range-wrap">
+          <div class="grid three">
+            <div class="field">
+              <label for="rangeMode">Range</label>
+              <select id="rangeMode">
+                <option value="dates">From / to dates</option>
+                <option value="days">Trailing days</option>
+              </select>
+            </div>
+            <div class="field" id="f-from">
+              <label for="from">GONG_DAY_FROM</label>
+              <input type="date" id="from" class="mono">
+            </div>
+            <div class="field" id="f-to">
+              <label for="to">GONG_DAY_TO</label>
+              <input type="date" id="to" class="mono">
+            </div>
+            <div class="field" id="f-days" style="display:none">
+              <label for="days">--days</label>
+              <input type="number" id="days" class="mono" min="1" max="365" value="7">
+            </div>
+          </div>
+        </div>
+
+        <div class="field wide" id="f-ids" style="display:none">
+          <label for="callIds">Call IDs</label>
+          <textarea id="callIds" class="mono" placeholder="2800017128684783250&#10;219042263877218880"></textarea>
+          <span class="note">One per line, or comma-separated. Title and date come from the payload.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Output</h2>
+      <p class="hint">Absolute path, <code>~</code> path, or relative to the project folder.</p>
+      <div class="grid two">
+        <div class="field wide">
+          <label for="out">GONG_OUT_DIR</label>
+          <input type="text" id="out" class="mono">
+          <span class="note" id="out-preview"></span>
+        </div>
+        <div class="field">
+          <label for="raw">GONG_RAW_DIR</label>
+          <input type="text" id="raw" class="mono">
+          <span class="note">Raw API JSON cache.</span>
+        </div>
+        <div class="field">
+          <label for="format">GONG_FORMAT</label>
+          <select id="format" class="mono">
+            <option value="md">md — Markdown</option>
+            <option value="text">text — plain</option>
+            <option value="srt">srt — subtitles</option>
+            <option value="vtt">vtt — WebVTT</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="concurrency">GONG_CONCURRENCY</label>
+          <input type="number" id="concurrency" class="mono" min="1" max="16">
+          <span class="note">Parallel transcript fetches.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="grid two" style="margin-bottom:18px">
+        <label class="check">
+          <input type="checkbox" id="dryRun">
+          <span class="txt">Dry run<small>List what would be written. Downloads nothing.</small></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="saveEnv">
+          <span class="txt">Save back to gong.env<small>Overwrites values, keeps comments. Makes a .bak.</small></span>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="primary" id="run" type="button">Pull transcripts</button>
+        <div class="spacer"></div>
+        <span class="note" id="cmd-preview"></span>
+      </div>
+    </div>
+
+    <footer>
+      Uses Gong's internal app API with your session cookie — undocumented, and the cookie
+      expires within hours. Equivalent CLI: <code>node gong.js me --days 7</code>.
+    </footer>
+  </section>
+
+  <!-- ================= FETCHING ================= -->
+  <section class="stage" id="s-run">
+    <header>
+      <h1 id="run-title">Pulling from Gong</h1>
+      <p class="sub" id="run-sub">Connecting…</p>
+    </header>
+
+    <div class="scene" id="scene">
+      <svg viewBox="0 0 900 190" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+        <!-- Hex literals, not var(): CSS custom properties do not resolve
+             inside <stop stop-color>, which silently drew nothing. -->
+        <defs>
+          <linearGradient id="beam" x1="0" x2="1">
+            <stop offset="0%"   stop-color="#7c6cf5" stop-opacity="0"/>
+            <stop offset="35%"  stop-color="#7c6cf5" stop-opacity=".55"/>
+            <stop offset="70%"  stop-color="#4dd6c1" stop-opacity=".55"/>
+            <stop offset="100%" stop-color="#4dd6c1" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+
+        <line x1="150" y1="95" x2="750" y2="95" stroke="url(#beam)" stroke-width="2"/>
+        <line class="flow" x1="150" y1="95" x2="750" y2="95"
+              stroke="#7c6cf5" stroke-width="2" stroke-opacity=".5"
+              stroke-dasharray="5 9" stroke-linecap="round"/>
+
+        <circle class="pulse" cx="150" cy="95" r="26" fill="#7c6cf5" opacity=".28"/>
+        <circle cx="150" cy="95" r="17" fill="none" stroke="#7c6cf5" stroke-width="2"/>
+        <circle cx="150" cy="95" r="5" fill="#7c6cf5"/>
+        <text x="150" y="140" text-anchor="middle" font-size="11" fill="#8f97ad"
+              font-family="ui-monospace, monospace">gong.io</text>
+
+        <!-- The wire is horizontal, so a plain translateX beats offset-path,
+             which failed to place these along the path at all. -->
+        <g id="pkts">
+          <rect class="pkt" y="90" width="15" height="10" rx="2.5" fill="#4dd6c1"/>
+          <rect class="pkt" y="90" width="15" height="10" rx="2.5" fill="#7c6cf5"/>
+          <rect class="pkt" y="90" width="15" height="10" rx="2.5" fill="#4dd6c1"/>
+          <rect class="pkt" y="90" width="15" height="10" rx="2.5" fill="#7c6cf5"/>
+          <rect class="pkt" y="90" width="15" height="10" rx="2.5" fill="#4dd6c1"/>
+          <rect class="pkt" y="90" width="15" height="10" rx="2.5" fill="#7c6cf5"/>
+        </g>
+
+        <g transform="translate(750 95)">
+          <circle class="ring-track" r="34" fill="none" stroke-width="5"/>
+          <circle id="ring" class="ring-fill" r="34" fill="none" stroke-width="5"
+                  stroke-linecap="round" transform="rotate(-90)"
+                  stroke-dasharray="213.6" stroke-dashoffset="213.6"/>
+        </g>
+        <text x="750" y="140" text-anchor="middle" font-size="11" fill="#8f97ad"
+              font-family="ui-monospace, monospace">disk</text>
+      </svg>
+      <div class="scene-count" style="left:auto;right:0;width:33%">
+        <div><span id="ring-n">0</span><small id="ring-of">waiting</small></div>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step" id="st-auth"><i class="dot"></i> Authenticate</div>
+      <div class="step" id="st-search"><i class="dot"></i> Search calls</div>
+      <div class="step" id="st-download"><i class="dot"></i> Fetch transcripts</div>
+      <div class="step" id="st-done"><i class="dot"></i> Write to disk</div>
+    </div>
+
+    <div class="meta" id="run-meta"></div>
+    <div class="days" id="dayList"></div>
+  </section>
+
+  <!-- ================= DONE ================= -->
+  <section class="stage" id="s-done">
+    <header>
+      <h1 id="done-title">Done</h1>
+      <p class="sub" id="done-sub"></p>
+    </header>
+
+    <div class="tally" id="tally"></div>
+    <div class="outpath" id="done-out"></div>
+    <div class="days" id="done-days"></div>
+
+    <div class="actions" style="margin-top:24px">
+      <button class="primary" id="again" type="button">Pull again</button>
+      <button class="ghost" id="back" type="button">Change options</button>
+    </div>
+  </section>
+
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+const F = {
+  cookie: $('cookie'), host: $('host'), workspace: $('workspace'), user: $('user'),
+  account: $('account'), accountName: $('accountName'), from: $('from'), to: $('to'),
+  days: $('days'), callIds: $('callIds'), out: $('out'), raw: $('raw'),
+  format: $('format'), concurrency: $('concurrency'),
+  dryRun: $('dryRun'), saveEnv: $('saveEnv'), rangeMode: $('rangeMode'),
+};
+
+let mode = 'me';
+let lastConfig = {};
+
+/* ---------- stage transitions ---------- */
+function show(id) {
+  const current = document.querySelector('.stage.active');
+  const next = $(id);
+  if (current === next) return;
+
+  if (!current) { next.classList.add('active'); return; }
+
+  current.classList.add('leaving');
+  setTimeout(() => {
+    current.classList.remove('active', 'leaving');
+    next.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, 280);
+}
+
+/* ---------- boot ---------- */
+async function boot() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    lastConfig = cfg;
+
+    F.cookie.value = cfg.GONG_COOKIE || '';
+    F.host.value = cfg.GONG_HOST || '';
+    F.user.value = cfg.GONG_USER_ID || '';
+    F.account.value = cfg.GONG_ACCOUNT_ID || '';
+    F.from.value = cfg.GONG_DAY_FROM || '';
+    F.to.value = cfg.GONG_DAY_TO || '';
+    F.out.value = cfg.GONG_OUT_DIR || '';
+    F.raw.value = cfg.GONG_RAW_DIR || '';
+    F.format.value = cfg.GONG_FORMAT || 'md';
+    F.concurrency.value = cfg.GONG_CONCURRENCY || '4';
+
+    // Known workspaces are seeded so the select is usable before Detect runs.
+    setWorkspaces([
+      { id: '2175491490980408935', name: 'Customer Engagement' },
+      { id: '3811476788007240356', name: 'Revenue Operations (restricted)' },
+    ], cfg.GONG_WORKSPACE_ID);
+
+    cookieMeta();
+    outPreview();
+    cmdPreview();
+  } catch (err) {
+    fail(`Could not read gong.env — ${err.message}`);
+  }
+
+  await new Promise((r) => setTimeout(r, 420));
+  $('boot').classList.add('gone');
+  show('s-form');
+}
+
+function setWorkspaces(list, selected) {
+  F.workspace.innerHTML = '';
+  const seen = new Set();
+  for (const w of list) {
+    if (seen.has(w.id)) continue;
+    seen.add(w.id);
+    const o = document.createElement('option');
+    o.value = w.id;
+    o.textContent = `${w.id} — ${w.name}`;
+    F.workspace.append(o);
+  }
+  if (selected && !seen.has(selected)) {
+    const o = document.createElement('option');
+    o.value = selected;
+    o.textContent = `${selected} — (from gong.env)`;
+    F.workspace.prepend(o);
+  }
+  const auto = document.createElement('option');
+  auto.value = '';
+  auto.textContent = 'auto-detect';
+  F.workspace.append(auto);
+  F.workspace.value = selected || '';
+}
+
+/* ---------- small UI bits ---------- */
+function cookieMeta() {
+  const v = F.cookie.value;
+  if (!v.trim()) { $('cookie-meta').textContent = 'empty'; return; }
+  const names = v.split(';').map((p) => p.split('=')[0].trim()).filter(Boolean);
+  const need = ['g-session', 'cf_clearance'].filter((n) => !names.includes(n));
+  $('cookie-meta').textContent =
+    `${names.length} cookies · ${(v.length / 1024).toFixed(1)} KB` +
+    (need.length ? ` · missing ${need.join(', ')}` : ' · looks complete');
+}
+
+function outPreview() {
+  const base = F.out.value.trim() || 'transcripts';
+  const ext = { md: 'md', text: 'txt', srt: 'srt', vtt: 'vtt' }[F.format.value] || 'txt';
+  $('out-preview').textContent = `${base}/Sep-3/Aquera-Pennrose-implementation-calls-transcript.${ext}`;
+}
+
+function cmdPreview() {
+  const parts = ['node gong.js', mode === 'me' ? 'me' : mode];
+  if (mode === 'call') parts.push('<ids>');
+  if (mode === 'account' && F.accountName.value.trim()) parts.push(`--name "${F.accountName.value.trim()}"`);
+  if (mode !== 'call') {
+    if (F.rangeMode.value === 'days') parts.push(`--days ${F.days.value}`);
+    else parts.push(F.from.value, F.to.value);
+  }
+  if (F.format.value !== 'md') parts.push(`--format ${F.format.value}`);
+  if (F.dryRun.checked) parts.push('--dry-run');
+  $('cmd-preview').textContent = parts.filter(Boolean).join(' ');
+}
+
+function fail(msg) {
+  const b = $('err');
+  b.textContent = msg;
+  b.className = 'banner bad show';
+}
+function note(msg) {
+  const b = $('err');
+  b.textContent = msg;
+  b.className = 'banner good show';
+}
+const clearBanner = () => { $('err').className = 'banner'; };
+
+/* ---------- listeners ---------- */
+$('reveal').onclick = () => {
+  const on = F.cookie.classList.toggle('masked');
+  $('reveal').textContent = on ? 'Reveal' : 'Hide';
+};
+F.cookie.addEventListener('input', cookieMeta);
+[F.out, F.format].forEach((el) => el.addEventListener('input', outPreview));
+[F.format, F.dryRun, F.rangeMode, F.days, F.from, F.to, F.accountName]
+  .forEach((el) => el.addEventListener('input', cmdPreview));
+
+F.rangeMode.onchange = () => {
+  const days = F.rangeMode.value === 'days';
+  $('f-days').style.display = days ? '' : 'none';
+  $('f-from').style.display = days ? 'none' : '';
+  $('f-to').style.display = days ? 'none' : '';
+  cmdPreview();
+};
+
+document.querySelectorAll('#mode button').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('#mode button').forEach((x) =>
+      x.setAttribute('aria-selected', String(x === b)));
+    mode = b.dataset.mode;
+    $('f-ids').style.display = mode === 'call' ? '' : 'none';
+    $('range-wrap').style.display = mode === 'call' ? 'none' : '';
+    cmdPreview();
+  };
+});
+
+$('detect').onclick = async () => {
+  const btn = $('detect');
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const r = await fetch('/api/workspaces', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ GONG_COOKIE: F.cookie.value }),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    setWorkspaces(d.workspaces, F.workspace.value);
+    note(`Found ${d.workspaces.length} workspace(s).`);
+  } catch (err) {
+    fail(`Detect failed — ${err.message}. The cookie is probably expired.`);
+  }
+  btn.disabled = false; btn.textContent = 'Detect';
+};
+
+/* ---------- run ---------- */
+const CIRC = 2 * Math.PI * 34;
+let total = 0, finished = 0;
+const groups = new Map();
+// id -> {kind, note}, so the summary can show what actually happened to each
+// call rather than marking everything succeeded.
+const outcomes = new Map();
+
+function setStep(name, state) {
+  const el = $(`st-${name}`);
+  if (!el) return;
+  el.classList.remove('on', 'done');
+  if (state) el.classList.add(state);
+}
+
+function ring(done, all) {
+  const frac = all ? Math.min(1, done / all) : 0;
+  $('ring').style.strokeDashoffset = String(CIRC * (1 - frac));
+  $('ring-n').textContent = all ? `${done}/${all}` : String(done);
+}
+
+function dayGroup(day, container) {
+  if (groups.has(day)) return groups.get(day);
+  const el = document.createElement('div');
+  el.className = 'day';
+  el.innerHTML = `
+    <div class="head">
+      <svg class="folder" width="15" height="15" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+      </svg>
+      <span class="name">${day}</span><span class="n">0</span>
+    </div>`;
+  container.append(el);
+  const g = { el, count: 0, items: new Map() };
+  groups.set(day, g);
+  return g;
+}
+
+const ICON = {
+  pending: '<svg class="mark spinner" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.2-8.5" stroke-linecap="round"/></svg>',
+  ok: '<svg class="mark" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.5"><path d="M20 6 9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  skipped: '<svg class="mark" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4" stroke-linecap="round"/><circle cx="12" cy="16" r=".6" fill="var(--warn)"/></svg>',
+  failed: '<svg class="mark" viewBox="0 0 24 24" fill="none" stroke="var(--bad)" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6" stroke-linecap="round"/></svg>',
+};
+
+function addItem(container, call, state, note) {
+  const g = dayGroup(call.day || '…', container);
+  let item = g.items.get(call.id);
+
+  if (!item) {
+    item = document.createElement('div');
+    g.items.set(call.id, item);
+    g.el.append(item);
+    g.count++;
+    g.el.querySelector('.n').textContent = g.count;
+  }
+  item.className = `item ${state}`;
+  item.innerHTML = `${ICON[state] || ''}<div class="body">
+      <span class="t">${escapeHtml(call.title || call.id)}</span>
+      <span class="p">${escapeHtml(note || call.path || '')}</span>
+    </div>`;
+  return item;
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+async function run() {
+  clearBanner();
+
+  if (!F.cookie.value.trim()) return fail('Paste your Gong cookie first.');
+  if (mode === 'call' && !F.callIds.value.trim()) return fail('Enter at least one call ID.');
+
+  const payload = {
+    mode,
+    GONG_HOST: F.host.value.trim(),
+    GONG_COOKIE: F.cookie.value.trim(),
+    GONG_WORKSPACE_ID: F.workspace.value,
+    GONG_USER_ID: F.user.value.trim(),
+    GONG_ACCOUNT_ID: F.account.value.trim(),
+    GONG_FORMAT: F.format.value,
+    GONG_OUT_DIR: F.out.value.trim(),
+    GONG_RAW_DIR: F.raw.value.trim(),
+    GONG_CONCURRENCY: F.concurrency.value,
+    accountName: F.accountName.value.trim(),
+    callIds: F.callIds.value,
+    dryRun: F.dryRun.checked,
+    from: F.from.value,
+    to: F.to.value,
+    days: F.rangeMode.value === 'days' ? F.days.value : null,
+  };
+
+  if (F.saveEnv.checked) {
+    try {
+      const keys = ['GONG_HOST', 'GONG_COOKIE', 'GONG_WORKSPACE_ID', 'GONG_USER_ID',
+                    'GONG_ACCOUNT_ID', 'GONG_FORMAT', 'GONG_OUT_DIR', 'GONG_RAW_DIR',
+                    'GONG_CONCURRENCY'];
+      const body = Object.fromEntries(keys.map((k) => [k, payload[k]]));
+      if (payload.from) body.GONG_DAY_FROM = payload.from;
+      if (payload.to) body.GONG_DAY_TO = payload.to;
+      await fetch('/api/save-env', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch { /* saving is a convenience; never block the run on it */ }
+  }
+
+  // reset run state
+  total = 0; finished = 0; groups.clear(); outcomes.clear();
+  $('dayList').innerHTML = '';
+  ring(0, 0);
+  $('ring-of').textContent = 'waiting';
+  ['auth', 'search', 'download', 'done'].forEach((s) => setStep(s, null));
+  $('run-meta').innerHTML = '';
+  $('run-title').textContent = F.dryRun.checked ? 'Dry run' : 'Pulling from Gong';
+  $('run-sub').textContent = 'Connecting…';
+  $('scene').classList.add('running');
+
+  show('s-run');
+
+  try {
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok || !res.body) throw new Error(`server returned HTTP ${res.status}`);
+
+    // EventSource is GET-only, so parse the SSE frames off the fetch stream.
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+
+      let i;
+      while ((i = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        const line = frame.split('\n').find((l) => l.startsWith('data:'));
+        if (line) handle(JSON.parse(line.slice(5).trim()));
+      }
+    }
+  } catch (err) {
+    $('scene').classList.remove('running');
+    show('s-form');
+    fail(err.message || String(err));
+  }
+}
+
+function handle(e) {
+  switch (e.type) {
+    case 'stage':
+      if (e.stage === 'auth') setStep('auth', 'on');
+      if (e.stage === 'search') { setStep('auth', 'done'); setStep('search', 'on'); }
+      if (e.stage === 'download') {
+        setStep('search', 'done'); setStep('download', 'on');
+        total = e.total || 0;
+        $('ring-of').textContent = `of ${total}`;
+        ring(0, total);
+      }
+      $('run-sub').textContent = e.message;
+      break;
+
+    case 'identity':
+      $('run-meta').innerHTML = `
+        <span>host <b>${escapeHtml(e.host)}</b></span>
+        <span>workspace <b>${escapeHtml(e.workspaceId)}</b></span>
+        <span>user <b>${escapeHtml(e.userId)}</b></span>`;
+      break;
+
+    case 'resolved':
+      $('run-sub').textContent = `Resolved "${e.name}" → ${e.accountId}`;
+      break;
+
+    case 'found':
+      $('run-sub').textContent = `Found ${e.count} call${e.count === 1 ? '' : 's'}…`;
+      ring(0, e.count);
+      $('ring-of').textContent = 'found';
+      break;
+
+    case 'note':
+      $('run-sub').textContent = e.message;
+      break;
+
+    case 'planned':
+      total = e.total;
+      $('ring-of').textContent = `of ${total}`;
+      ring(0, total);
+      for (const c of e.calls) addItem($('dayList'), c, 'pending');
+      break;
+
+    case 'done':
+      finished++;
+      outcomes.set(e.call.id, { kind: e.kind, note: e.note });
+      addItem($('dayList'), e.call, e.kind, e.note);
+      ring(finished, total);
+      break;
+
+    case 'complete':
+      $('scene').classList.remove('running');
+      setStep('download', 'done'); setStep('done', 'done');
+      finish(e);
+      break;
+
+    case 'error':
+      $('scene').classList.remove('running');
+      show('s-form');
+      fail(e.message);
+      break;
+  }
+}
+
+function finish(e) {
+  $('done-title').textContent = e.dryRun ? 'Dry run complete'
+    : e.failed ? 'Finished with errors' : 'Transcripts saved';
+  $('done-sub').textContent = e.dryRun
+    ? 'Nothing was written — these are the paths it would use.'
+    : `${e.calls.length} call${e.calls.length === 1 ? '' : 's'} processed.`;
+
+  $('tally').innerHTML = `
+    <div class="pill ok"><b>${e.dryRun ? e.calls.length : e.ok}</b><span>${e.dryRun ? 'planned' : 'saved'}</span></div>
+    <div class="pill skip"><b>${e.skipped}</b><span>skipped</span></div>
+    <div class="pill fail"><b>${e.failed}</b><span>failed</span></div>
+    <div class="pill"><b>${new Set(e.calls.map((c) => c.day)).size}</b><span>folders</span></div>`;
+
+  $('done-out').textContent = e.outDir || '';
+
+  groups.clear();
+  $('done-days').innerHTML = '';
+  for (const c of e.calls) {
+    const o = outcomes.get(c.id);
+    const kind = e.dryRun ? 'pending' : (o ? o.kind : 'ok');
+    addItem($('done-days'), c, kind, o && o.note ? o.note : c.path);
+  }
+
+  setTimeout(() => show('s-done'), 700);
+}
+
+$('run').onclick = run;
+$('again').onclick = run;
+$('back').onclick = () => show('s-form');
+
+boot();
+</script>
+</body>
+</html>

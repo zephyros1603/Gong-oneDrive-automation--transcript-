@@ -1,5 +1,9 @@
 {
   "name": "datagenerations",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "ui": "node serve.js",
+    "pull": "node gong.js me --days 7"
+  }
 }

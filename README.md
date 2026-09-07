@@ -83,6 +83,31 @@ node gong.js me --days 7 --out /Volumes/Archive/gong --raw /tmp/gong-raw
 `gong.js call <id>` has no search metadata to name a file from, so it reads
 the title and date out of the transcript payload itself.
 
+## Web UI
+
+```bash
+node serve.js            # http://127.0.0.1:7878
+node serve.js --port 9000
+```
+
+Every field is prefilled from `gong.env`. Fill the form, hit **Pull
+transcripts**, and the options fade out into a live progress view — each call
+appears under its day folder with a spinner, then a check, a red cross with
+the HTTP error, or an amber skip. Optionally tick **Save back to gong.env** to
+persist what you entered (comments preserved, `.bak` written).
+
+It covers everything the CLI does: all three modes, both range styles, the
+four namespace IDs, format, output and raw directories, concurrency, and dry
+run. A live CLI-equivalent line at the bottom of the form shows the command
+your settings correspond to.
+
+**Why a server and not a plain HTML file.** The page has to read `gong.env`,
+write transcripts to disk, and call Gong's internal API with your session
+cookie. A browser can do none of those from a `file://` page or a hosted
+origin — CORS blocks the API and there is no filesystem access. So the browser
+only renders; `serve.js` does the work, binds to `127.0.0.1` only, and serves
+files exclusively out of `ui/`. The cookie never leaves your machine.
+
 ## The three ID namespaces
 
 Easy to conflate, and they are not interchangeable:
@@ -229,6 +254,8 @@ unmodified integer literals verbatim, so the shell pipeline is safe.
 | File | Role |
 |---|---|
 | `gong.js` | Everything: auth, search, pagination, download, foldering |
+| `serve.js` | Local web server for the UI (loopback only) |
+| `ui/index.html` | The web UI — form, progress animation, summary |
 | `gongTranscript.js` | Renderer: text / md / srt / vtt. Imported by `gong.js` |
 | `gong.env` | Config + cookie. Gitignored, `chmod 600` |
 | `com.sanjan.gong-transcript.plist` | launchd schedule |
@@ -239,6 +266,9 @@ unmodified integer literals verbatim, so the shell pipeline is safe.
 `gong.js` replaces `gong-lib.sh`, `gong-my-calls.sh`, `gong-calls.sh`,
 `fetch.sh` and `pagedata.py`, and was verified to produce **byte-identical**
 output to the bash version on the same date range.
+
+`serve.js` imports `gong.js` rather than shelling out to it, which is why
+`gong.js` only runs its CLI when invoked directly.
 
 Two things the bash version got for free and the port had to handle
 explicitly:

@@ -23,7 +23,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join, isAbsolute, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import { convert } from './gongTranscript.js';
 
@@ -44,7 +44,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  */
 const BIG_INT_FIELD = /"([A-Za-z_$][\w$]*)"\s*:\s*(-?\d{16,})(?=\s*[,}\]])/g;
 
-function parseBig(text) {
+export function parseBig(text) {
   return JSON.parse(text.replace(BIG_INT_FIELD, '"$1":"$2"'));
 }
 
@@ -87,7 +87,7 @@ function resolveDir(value, fallback) {
   return isAbsolute(raw) ? raw : resolve(HERE, raw);
 }
 
-function loadConfig(overrides = {}) {
+export function loadConfig(overrides = {}) {
   const file = parseEnvFile(join(HERE, 'gong.env'));
 
   // Precedence: CLI flag > real environment > gong.env. A one-off override
@@ -122,7 +122,7 @@ function loadConfig(overrides = {}) {
 // client
 // ---------------------------------------------------------------------------
 
-class Gong {
+export class Gong {
   constructor(cfg) {
     this.cfg = cfg;
     this.csrf = null;
@@ -294,13 +294,13 @@ class Gong {
 // filters
 // ---------------------------------------------------------------------------
 
-const filterDates = (from, to) => ({ type: 'AbsoluteCallDateRange', from, to });
+export const filterDates = (from, to) => ({ type: 'AbsoluteCallDateRange', from, to });
 
 /**
  * Participants takes `userIds` (not `ids`), and without the role flags it
  * returns zero results instead of erroring — a silent wrong answer.
  */
-const filterMe = (userId) => ({
+export const filterMe = (userId) => ({
   type: 'Participants',
   userIds: [userId],
   host: true,
@@ -321,7 +321,7 @@ function jwtField(token, field) {
 }
 
 /** Brace-match window.pageData out of a Gong page, quote-aware. */
-function pageData(html) {
+export function pageData(html) {
   const at = html.indexOf('pageData = {');
   if (at === -1) throw new Error('no pageData on this page (signed out?)');
 
@@ -343,30 +343,30 @@ function pageData(html) {
   throw new Error('unterminated pageData');
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** "2026/09/03 10:30:00" -> "Sep-3" */
-function dayFolder(started) {
+export function dayFolder(started) {
   const m = /^(\d{4})\/(\d{2})\/(\d{2})/.exec(started || '');
   if (!m) return 'unknown-date';
   return `${MONTHS[Number(m[2]) - 1]}-${Number(m[3])}`;
 }
 
 /** "Aquera / Pennrose: implementation calls" -> "Aquera-Pennrose-implementation-calls" */
-const slug = (title) =>
+export const slug = (title) =>
   String(title)
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 90) || 'untitled';
 
-const extFor = (format) => ({ md: 'md', srt: 'srt', vtt: 'vtt' }[format] || 'txt');
+export const extFor = (format) => ({ md: 'md', srt: 'srt', vtt: 'vtt' }[format] || 'txt');
 
-const ymd = (d) => d.toISOString().slice(0, 10);
-const daysAgo = (n) => ymd(new Date(Date.now() - n * 86400_000));
+export const ymd = (d) => d.toISOString().slice(0, 10);
+export const daysAgo = (n) => ymd(new Date(Date.now() - n * 86400_000));
 
 /** Bounded-concurrency map that preserves input order in its results. */
-async function pool(items, limit, worker) {
+export async function pool(items, limit, worker) {
   const results = new Array(items.length);
   let next = 0;
 
@@ -409,7 +409,8 @@ function renameFromPayload(text, call, taken, outDir, ext) {
   return { title, day, path };
 }
 
-async function download(gong, calls, { dryRun, format, outDir, rawDir, concurrency }) {
+export async function download(gong, calls, { dryRun, format, outDir, rawDir, concurrency, onEvent }) {
+  const emit = onEvent || (() => {});
   const ext = extFor(format);
 
   // A recurring meeting can produce two identical titles on one day. Only
@@ -427,18 +428,27 @@ async function download(gong, calls, { dryRun, format, outDir, rawDir, concurren
     return { ...call, day, path };
   });
 
+  emit({ type: 'planned', total: planned.length, calls: planned });
+
   if (dryRun) {
     for (const c of planned) {
       console.log(`${c.day.padEnd(7)} ${String(c.status).padEnd(10)} ${c.path}`);
     }
-    return { ok: 0, skipped: 0, failed: 0 };
+    return { ok: 0, skipped: 0, failed: 0, planned };
   }
 
   const tally = { ok: 0, skipped: 0, failed: 0 };
 
   const outcomes = await pool(planned, concurrency, async (c) => {
-    if (c.status !== 'COMPLETED') return { c, note: `${c.status}, no transcript`, kind: 'skipped' };
-    if (c.access !== true) return { c, note: 'no access', kind: 'skipped' };
+    if (c.status !== 'COMPLETED') {
+      const note = `${c.status}, no transcript`;
+      emit({ type: 'done', kind: 'skipped', call: c, note });
+      return { c, note, kind: 'skipped' };
+    }
+    if (c.access !== true) {
+      emit({ type: 'done', kind: 'skipped', call: c, note: 'no access' });
+      return { c, note: 'no access', kind: 'skipped' };
+    }
 
     try {
       const text = await gong.transcriptText(c.id);
@@ -458,8 +468,10 @@ async function download(gong, calls, { dryRun, format, outDir, rawDir, concurren
       mkdirSync(dirname(c.path), { recursive: true });
       writeFileSync(c.path, rendered, 'utf8');
 
+      emit({ type: 'done', kind: 'ok', call: c });
       return { c, kind: 'ok' };
     } catch (err) {
+      emit({ type: 'done', kind: 'failed', call: c, note: err.message });
       return { c, note: err.message, kind: 'failed' };
     }
   });
@@ -470,7 +482,7 @@ async function download(gong, calls, { dryRun, format, outDir, rawDir, concurren
     else if (kind === 'skipped') console.error(`${c.day.padEnd(7)} ~ ${c.title} — ${note}`);
     else console.error(`${c.day.padEnd(7)} ✗ ${c.title} (${c.id}) — ${note}`);
   }
-  return tally;
+  return { ...tally, planned };
 }
 
 async function cmdMe(gong, cfg, args) {
@@ -639,7 +651,13 @@ async function main() {
   }
 }
 
-main().then(
-  (code) => process.exit(code || 0),
-  (err) => { console.error(err.message || err); process.exit(1); }
-);
+// Guard the CLI so `import ... from './gong.js'` has no side effects.
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedDirectly) {
+  main().then(
+    (code) => process.exit(code || 0),
+    (err) => { console.error(err.message || err); process.exit(1); }
+  );
+}
