@@ -15,12 +15,15 @@
  */
 
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, writeFileSync, copyFileSync } from 'node:fs';
-import { dirname, join, extname } from 'node:path';
+import {
+  readFileSync, existsSync, writeFileSync, copyFileSync, readdirSync, statSync,
+} from 'node:fs';
+import { dirname, join, extname, resolve, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   Gong, loadConfig, download, filterMe, filterDates, ymd, daysAgo,
 } from './gong.js';
+import { organize } from './organize.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = join(HERE, 'gong.env');
@@ -65,6 +68,7 @@ function envDefaults() {
     GONG_OUT_DIR: cfg.outDir,
     GONG_RAW_DIR: cfg.rawDir,
     GONG_CONCURRENCY: String(cfg.concurrency),
+    GONG_SORTED_DIR: join(cfg.outDir, '..', 'sorted'),
   };
 }
 
@@ -452,6 +456,77 @@ async function receiveCookie(body) {
 }
 
 // ---------------------------------------------------------------------------
+// transcript browser
+// ---------------------------------------------------------------------------
+
+const PREVIEWABLE = /\.(md|txt|srt|vtt)$/i;
+
+/**
+ * The only directories the preview endpoints will read from. Everything is
+ * resolved and prefix-checked against these, so a crafted `path` cannot walk
+ * out into the rest of the filesystem.
+ */
+function previewRoots() {
+  const cfg = loadConfig();
+  return [
+    { label: 'by day', path: resolve(cfg.outDir) },
+    { label: 'sorted', path: resolve(join(cfg.outDir, '..', 'sorted')) },
+  ].filter((r, i, all) => all.findIndex((o) => o.path === r.path) === i);
+}
+
+function insideRoot(target) {
+  const abs = resolve(target);
+  return previewRoots().some(
+    (r) => abs === r.path || abs.startsWith(r.path + sep)
+  );
+}
+
+function listTranscripts() {
+  const out = [];
+
+  const walk = (dir, root) => {
+    let entries;
+    try { entries = readdirSync(dir); } catch { return; }
+
+    // organize.js marks every tree it writes. A sorted tree left inside the
+    // day tree would otherwise be listed as "by day" with `sorted/...` group
+    // names, so re-root the subtree instead of inheriting the wrong label.
+    const here = entries.includes('.gong-sorted')
+      ? { label: 'sorted', path: dir }
+      : root;
+
+    for (const name of entries) {
+      if (name.startsWith('.')) continue;
+      const path = join(dir, name);
+      let st;
+      try { st = statSync(path); } catch { continue; }
+
+      if (st.isDirectory()) walk(path, here);
+      else if (PREVIEWABLE.test(name)) {
+        const rel = relative(here.path, path);
+        const parts = rel.split(sep);
+        out.push({
+          path,
+          rel,
+          name,
+          group: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
+          root: here.label,
+          size: st.size,
+          mtime: st.mtimeMs,
+        });
+      }
+    }
+  };
+
+  for (const root of previewRoots()) walk(root.path, root);
+
+  // Day tree first (that is what a run just wrote), newest first within each.
+  const rank = (r) => (r === 'by day' ? 0 : 1);
+  out.sort((a, b) => rank(a.root) - rank(b.root) || b.mtime - a.mtime);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // http
 // ---------------------------------------------------------------------------
 
@@ -536,6 +611,49 @@ const server = createServer(async (req, res) => {
         return json(res, 200, await testConnection(await readBody(req)));
       } catch (err) {
         return json(res, 200, { ok: false, fatal: err.message || String(err), checks: [] });
+      }
+    }
+
+    if (url.pathname === '/api/files' && req.method === 'GET') {
+      return json(res, 200, {
+        roots: previewRoots().map((r) => ({ label: r.label, path: r.path })),
+        files: listTranscripts(),
+      });
+    }
+
+    if (url.pathname === '/api/file' && req.method === 'GET') {
+      const target = url.searchParams.get('path') || '';
+
+      if (!target || !insideRoot(target) || !PREVIEWABLE.test(target)) {
+        return json(res, 403, { error: 'that path is not previewable' });
+      }
+      const abs = resolve(target);
+      if (!existsSync(abs)) return json(res, 404, { error: 'no such file' });
+
+      const st = statSync(abs);
+      if (st.size > 4e6) return json(res, 413, { error: 'file too large to preview' });
+
+      return json(res, 200, {
+        path: abs,
+        name: basename(abs),
+        size: st.size,
+        mtime: st.mtimeMs,
+        content: readFileSync(abs, 'utf8'),
+      });
+    }
+
+    if (url.pathname === '/api/organize' && req.method === 'POST') {
+      const body = await readBody(req);
+      try {
+        return json(res, 200, organize({
+          by: body.by,
+          src: body.src,
+          out: body.out,
+          mode: body.mode,
+          dryRun: Boolean(body.dryRun),
+        }));
+      } catch (err) {
+        return json(res, 200, { ok: false, fatal: err.message || String(err), groups: [] });
       }
     }
 

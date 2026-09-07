@@ -2,6 +2,7 @@ gong.env
 gong.env.bak
 raw/
 transcripts/
+sorted/
 logs/
 .server.pid
 ui/_probe.html

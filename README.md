@@ -197,6 +197,69 @@ Safety properties worth knowing:
   page cannot push cookies at the server even though it listens on loopback.
 - Nothing leaves the machine: the extension talks to `127.0.0.1` only.
 
+## Preview sidebar
+
+A right-hand panel renders any transcript the way GitHub renders a README.
+Open it with **Preview** (top right), or click any output path printed on the
+page — in the run progress list, the summary, or the organize results.
+
+It has two modes: a filterable file list grouped by folder, and the rendered
+file with a **Copy** button pinned to the top right that copies the original
+markdown. Escape closes the panel; the back arrow returns to the list. Below
+1020px wide the panel covers the page instead of squeezing it.
+
+The markdown is rendered by a small parser in the page rather than a CDN
+library, so the UI keeps working with no network. It escapes the source before
+applying any inline rule, so transcript text cannot inject markup, and only
+`http(s)`/`mailto` links become anchors. `.srt`, `.vtt` and `.txt` are shown
+verbatim — running subtitles through a markdown parser would mangle them.
+
+Two endpoints back it: `/api/files` lists what is previewable, and
+`/api/file?path=` reads one. Both resolve the path and check it against the
+output and sorted directories, so a crafted path cannot read anything else —
+`/etc/passwd`, `gong.env` and `serve.js` all return 403.
+
+## Organizing transcripts
+
+Downloads are filed by day, which answers "what happened this week" and not
+"everything we ever discussed with Pennrose". `organize.js` builds a second
+tree from the same files:
+
+```bash
+node organize.js                  # by customer, into sorted/
+node organize.js --by call        # by call title
+node organize.js --dry-run        # print the plan, change nothing
+node organize.js --link           # hardlink: no extra disk, edits affect both
+node organize.js --move           # relocate, then remove empty day folders
+node organize.js --src DIR --out DIR
+```
+
+```
+transcripts/Sep-3/Aquera-Pennrose-implementation-calls-transcript.md
+  → sorted/Pennrose-LLC/Sep-3-Aquera-Pennrose-implementation-calls-transcript.md
+```
+
+The same control is in the web UI in **both** places — on the form before a
+run, and on the summary after one — with **Preview** (dry run) and
+**Organize**. The two stay in sync: change the grouping on one and the other
+agrees. Note it regroups the entire output folder, not only the run you just
+did.
+
+Every tree `organize.js` writes gets a `.gong-sorted` marker file, and marked
+directories are never walked as *source*. Without that, a sorted tree left
+inside the source (say `transcripts/sorted/`) is picked up on the next run and
+sorted again, multiplying copies — which is exactly what happened here: a run
+into `transcripts/sorted/` made the next plan see 66 files instead of 33.
+
+Grouping keys come from the raw API payload (`callCustomers`, `callTitle`),
+falling back to the transcript's own header when the raw JSON is missing —
+which is what lets `.srt`/`.vtt` files, that carry no header, still be sorted.
+Anything unattributable lands in `Unsorted/`. Destination folders that sit
+inside the source are skipped, so a second run does not sort its own output.
+
+Copy is the default because it cannot lose anything. `--link` is the efficient
+choice once you trust it: one set of bytes, two paths.
+
 ## The three ID namespaces
 
 Easy to conflate, and they are not interchangeable:
@@ -350,6 +413,7 @@ unmodified integer literals verbatim, so the shell pipeline is safe.
 | File | Role |
 |---|---|
 | `gong.js` | Everything: auth, search, pagination, download, foldering |
+| `organize.js` | Regroups transcripts by customer or call |
 | `serve.js` | Local web server for the UI (loopback only) |
 | `ui/index.html` | The web UI — form, progress animation, summary |
 | `ui/assets/` | Scene artwork: `gong.png`, `laptop.png` (source), `laptop-cut.png` |

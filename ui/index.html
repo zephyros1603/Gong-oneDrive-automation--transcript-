@@ -213,6 +213,175 @@
   .banner.bad { border-color: #ef5f6b55; background: #ef5f6b12; color: #ff9aa2; }
   .banner.good { border-color: #48c78e55; background: #48c78e12; color: #7fe0b0; }
 
+  /* ---------- right sidebar ---------- */
+  :root { --side-w: 480px; }
+
+  body { transition: padding-right .34s cubic-bezier(.3,.8,.2,1); }
+  body.side-open { padding-right: var(--side-w); }
+
+  #side {
+    position: fixed; top: 0; right: 0; bottom: 0; width: var(--side-w);
+    display: flex; flex-direction: column; z-index: 40;
+    background: var(--surface); border-left: 1px solid var(--line);
+    transform: translateX(100%);
+    transition: transform .34s cubic-bezier(.3,.8,.2,1);
+  }
+  body.side-open #side { transform: none; }
+
+  /* Below this width the sidebar covers the page instead of squeezing it. */
+  @media (max-width: 1020px) {
+    :root { --side-w: min(92vw, 480px); }
+    body.side-open { padding-right: 0; }
+    #side { box-shadow: -20px 0 60px -20px #0009; }
+  }
+
+  #side-toggle {
+    position: fixed; top: 16px; right: 16px; z-index: 30;
+    display: flex; align-items: center; gap: 7px;
+    padding: 8px 13px; font-size: 12.5px;
+    background: var(--surface); border: 1px solid var(--line);
+    transition: opacity .2s, transform .2s, border-color .16s;
+  }
+  body.side-open #side-toggle { opacity: 0; pointer-events: none; transform: translateX(12px); }
+
+  .side-head {
+    display: flex; align-items: center; gap: 8px; flex: none;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+  .side-head .name {
+    flex: 1; min-width: 0; font: 600 12.5px/1.4 var(--sans);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .side-head .sub { font: 11px/1.4 var(--mono); color: var(--faint); }
+  .side-head button { padding: 6px 8px; line-height: 0; background: transparent; }
+
+  .side-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+
+  /* --- file browser --- */
+  .side-filter { padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+  .side-filter input { font-size: 12.5px; }
+
+  .fgroup { border-bottom: 1px solid var(--line-soft); }
+  .fgroup > .h {
+    padding: 7px 13px; font: 600 10.5px/1.5 var(--mono);
+    letter-spacing: .04em; color: var(--faint);
+    background: var(--surface-2); position: sticky; top: 0; z-index: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .frow {
+    display: flex; align-items: baseline; gap: 9px; width: 100%; text-align: left;
+    padding: 8px 13px; border: none; border-radius: 0; background: transparent;
+    font: 12px/1.45 var(--sans); cursor: pointer;
+  }
+  .frow:hover { background: var(--surface-2); border: none; }
+  .frow .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .s { flex: none; font: 10.5px/1.4 var(--mono); color: var(--faint); }
+  .frow[aria-current=true] { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+
+  .side-empty { padding: 26px 16px; text-align: center; color: var(--faint); font-size: 12.5px; }
+
+  /* Zero-height sticky rail so the copy button stays pinned to the top-right
+     of the content while it scrolls, without reserving any vertical space. */
+  .md-tools {
+    position: sticky; top: 0; height: 0; z-index: 3;
+    display: flex; justify-content: flex-end; pointer-events: none;
+  }
+  .md-copy {
+    pointer-events: auto; margin: 12px 18px 0 0;
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; font-size: 11.5px; font-weight: 560;
+    background: var(--surface-2); border: 1px solid var(--line);
+    box-shadow: 0 4px 14px -6px #0008;
+  }
+  .md-copy:hover { border-color: var(--accent); }
+  .md-copy.done { border-color: #48c78e66; color: var(--ok); }
+  .md-copy svg { flex: none; }
+
+  /* --- rendered markdown, GitHub-ish --- */
+  .md { padding: 20px 22px 60px; font-size: 13.5px; line-height: 1.65; }
+  .md > :first-child { margin-top: 0; }
+  /* Reserve room so a long title does not run under the floating Copy button. */
+  .md > h1:first-child, .md > h2:first-child { padding-right: 86px; }
+  .md h1, .md h2, .md h3, .md h4 {
+    margin: 22px 0 12px; line-height: 1.3; font-weight: 620; letter-spacing: -.01em;
+  }
+  .md h1 { font-size: 21px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .md h2 { font-size: 17px; padding-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
+  .md h3 { font-size: 15px; }
+  .md h4 { font-size: 13.5px; color: var(--muted); }
+  .md p { margin: 0 0 13px; }
+  .md strong { font-weight: 620; color: var(--text); }
+  .md em { font-style: italic; }
+  .md a { color: var(--accent); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+  .md code {
+    font: 12px/1.5 var(--mono);
+    background: var(--surface-2); border: 1px solid var(--line-soft);
+    border-radius: 5px; padding: 1px 5px;
+  }
+  .md pre {
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 0 0 14px;
+  }
+  .md pre code { background: none; border: none; padding: 0; font-size: 11.5px; }
+  .md blockquote {
+    margin: 0 0 14px; padding: 2px 0 2px 14px;
+    border-left: 3px solid var(--line); color: var(--muted);
+  }
+  .md ul, .md ol { margin: 0 0 14px; padding-left: 22px; }
+  .md li { margin: 3px 0; }
+  .md hr { border: none; border-top: 1px solid var(--line); margin: 20px 0; }
+  .md table { border-collapse: collapse; margin: 0 0 14px; font-size: 12.5px; display: block; overflow-x: auto; }
+  .md th, .md td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+  .md th { background: var(--surface-2); font-weight: 600; }
+
+  /* a transcript's own turn labels read better tightened up */
+  .md p > strong:first-child:last-child { display: inline-block; margin-top: 6px; }
+
+  /* clickable output paths */
+  .item .p.link, .org-file.link { cursor: pointer; }
+  .item .p.link:hover, .org-file.link:hover { color: var(--accent-2); text-decoration: underline; }
+
+/* ---------- organizer ---------- */
+  .org-controls { display: grid; gap: 12px 14px; grid-template-columns: 1fr 1fr; }
+  .org-controls .field.wide { grid-column: 1 / -1; }
+  @media (max-width: 720px) { .org-controls { grid-template-columns: 1fr; } }
+
+  .org-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .org-actions .note { margin-left: auto; }
+
+  .org-result { margin-top: 16px; display: none; }
+  .org-result.show { display: block; animation: rise .3s ease both; }
+
+  .org-head {
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+    font-size: 12.5px; margin-bottom: 10px;
+  }
+  .org-head b { font-weight: 600; }
+  .org-head .path { font: 11.5px/1.5 var(--mono); color: var(--faint); }
+
+  .org-groups { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+  /* flex: none matters — inside a column flex box with a max-height these
+     otherwise shrink and overlap instead of scrolling. */
+  .org-group { flex: none; border: 1px solid var(--line); border-radius: 9px;
+               overflow: hidden; background: var(--surface); }
+  .org-group > summary {
+    display: flex; align-items: center; gap: 9px; cursor: pointer;
+    padding: 9px 12px; background: var(--surface-2); font-size: 12.5px; list-style: none;
+  }
+  .org-group > summary::-webkit-details-marker { display: none; }
+  .org-group > summary .chev { color: var(--faint); transition: transform .2s; flex: none; }
+  .org-group[open] > summary .chev { transform: rotate(90deg); }
+  .org-group .lbl { font-weight: 560; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .org-group .n { margin-left: auto; font-size: 11.5px; color: var(--faint); flex: none; }
+  .org-file {
+    padding: 6px 12px 6px 33px; border-top: 1px solid var(--line-soft);
+    font: 11px/1.6 var(--mono); color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .org-file.err { color: var(--bad); }
+
   /* ---------- connection test ---------- */
   .test { margin-top: 14px; display: none; }
   .test.show { display: block; animation: rise .3s ease both; }
@@ -374,6 +543,35 @@
   </div>
 </div>
 
+<button id="side-toggle" type="button" title="Preview transcripts">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+    <path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/>
+  </svg>
+  Preview
+</button>
+
+<aside id="side" aria-label="Transcript preview">
+  <div class="side-head">
+    <button id="side-back" type="button" title="Back to the file list" hidden>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+    </button>
+    <div style="flex:1;min-width:0">
+      <div class="name" id="side-name">Transcripts</div>
+      <div class="sub" id="side-sub"></div>
+    </div>
+    <button id="side-close" type="button" title="Close">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="side-body" id="side-body"></div>
+</aside>
+
 <div class="wrap">
 
   <!-- ================= FORM ================= -->
@@ -530,9 +728,16 @@
       </div>
     </div>
 
+    <div class="card">
+      <h2>Organize existing transcripts</h2>
+      <p class="hint">Downloads are filed by day. This builds a second tree grouped by
+        customer or by call — useful for "everything we discussed with one account".</p>
+      <div id="org-form"></div>
+    </div>
+
     <footer>
-      Uses Gong's internal app API with your session cookie — undocumented, and the cookie
-      expires within hours. Equivalent CLI: <code>node gong.js me --days 7</code>.
+      Uses Gong's internal app API with your session cookie — undocumented. Equivalent
+      CLI: <code>node gong.js me --days 7</code> and <code>node organize.js</code>.
     </footer>
   </section>
 
@@ -626,7 +831,14 @@
     <div class="outpath" id="done-out"></div>
     <div class="days" id="done-days"></div>
 
-    <div class="actions" style="margin-top:24px">
+    <div class="card" style="margin-top:22px">
+      <h2>Organize transcripts</h2>
+      <p class="hint">Regroups everything in the output folder — this run and every
+        earlier one — by customer or by call.</p>
+      <div id="org-done"></div>
+    </div>
+
+    <div class="actions" style="margin-top:22px">
       <button class="primary" id="again" type="button">Pull again</button>
       <button class="ghost" id="back" type="button">Change options</button>
     </div>
@@ -686,6 +898,10 @@ async function boot() {
       { id: '2175491490980408935', name: 'Customer Engagement' },
       { id: '3811476788007240356', name: 'Revenue Operations (restricted)' },
     ], cfg.GONG_WORKSPACE_ID);
+
+    orgState.out = cfg.GONG_SORTED_DIR || '';
+    mountOrganizer($('org-form'));
+    mountOrganizer($('org-done'));
 
     cookieMeta();
     outPreview();
@@ -980,10 +1196,15 @@ function addItem(container, call, state, note) {
     g.count++;
     g.el.querySelector('.n').textContent = g.count;
   }
+  const shown = note || call.path || '';
+  // Clicking a written file opens it in the preview sidebar.
+  const previewable = !note && call.path && /\.(md|txt|srt|vtt)$/i.test(call.path);
   item.className = `item ${state}`;
   item.innerHTML = `${ICON[state] || ''}<div class="body">
       <span class="t">${escapeHtml(call.title || call.id)}</span>
-      <span class="p">${escapeHtml(note || call.path || '')}</span>
+      <span class="p${previewable ? ' link' : ''}"${
+        previewable ? ` data-preview="${escapeHtml(call.path)}" title="Preview"` : ''
+      }>${escapeHtml(shown)}</span>
     </div>`;
   return item;
 }
@@ -1166,6 +1387,440 @@ function finish(e) {
   }
 
   setTimeout(() => show('s-done'), 700);
+}
+
+/* ---------- markdown ----------
+ * A small renderer rather than a CDN library: this page is served locally and
+ * should keep working with no network, and escaping the source before applying
+ * any inline rule keeps transcript text from injecting markup.
+ */
+function mdToHtml(src) {
+  const esc = (t) => String(t).replace(/[&<>]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+  // Lift fenced code out first so inline rules never touch its contents.
+  const fences = [];
+  let text = String(src).replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code) => {
+    fences.push(`<pre><code>${esc(code.replace(/\n$/, ''))}</code></pre>`);
+    return `\u0000F${fences.length - 1}\u0000`;
+  });
+
+  const inline = (t) => esc(t)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, href) =>
+      // Only real web links become anchors; anything else stays plain text.
+      /^(https?:|mailto:)/i.test(href)
+        ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : label);
+
+  const out = [];
+  const lines = text.split('\n');
+  let para = [];
+  let list = null;
+  let quote = [];
+
+  const flushPara = () => {
+    if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; }
+  };
+  const flushList = () => {
+    if (list) { out.push(`<${list.tag}>${list.items.map((i) => `<li>${inline(i)}</li>`).join('')}</${list.tag}>`); list = null; }
+  };
+  const flushQuote = () => {
+    if (quote.length) { out.push(`<blockquote>${inline(quote.join(' '))}</blockquote>`); quote = []; }
+  };
+  const flushAll = () => { flushPara(); flushList(); flushQuote(); };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fence = /^\u0000F(\d+)\u0000$/.exec(line.trim());
+
+    if (fence) { flushAll(); out.push(fences[Number(fence[1])]); continue; }
+    if (!line.trim()) { flushAll(); continue; }
+
+    if (/^ {0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flushAll(); out.push('<hr>'); continue; }
+
+    const h = /^ {0,3}(#{1,6})\s+(.*)$/.exec(line);
+    if (h) { flushAll(); out.push(`<h${h[1].length}>${inline(h[2].trim())}</h${h[1].length}>`); continue; }
+
+    // A pipe row followed by a dashed row is a table.
+    if (line.includes('|') && /^\s*\|?[\s:-]*-[\s|:-]*$/.test(lines[i + 1] || '')) {
+      flushAll();
+      const cells = (l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
+      const head = cells(line);
+      const body = [];
+      i += 2;
+      while (i < lines.length && lines[i].includes('|')) body.push(cells(lines[i++]));
+      i--;
+      out.push(`<table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead>` +
+        `<tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+      continue;
+    }
+
+    const q = /^ {0,3}>\s?(.*)$/.exec(line);
+    if (q) { flushPara(); flushList(); quote.push(q[1]); continue; }
+
+    const li = /^\s*([-*+]|\d+[.)])\s+(.*)$/.exec(line);
+    if (li) {
+      flushPara(); flushQuote();
+      const tag = /\d/.test(li[1]) ? 'ol' : 'ul';
+      if (!list || list.tag !== tag) { flushList(); list = { tag, items: [] }; }
+      list.items.push(li[2]);
+      continue;
+    }
+
+    flushList(); flushQuote();
+    para.push(line.trim());
+  }
+  flushAll();
+  return out.join('\n');
+}
+
+/* ---------- sidebar ---------- */
+const side = {
+  files: [],
+  current: null,
+  content: '',
+  loadedAt: 0,
+};
+
+const COPY_ICON =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<rect x="9" y="9" width="12" height="12" rx="2"/>' +
+  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
+const TICK_ICON =
+  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M20 6 9 17l-5-5"/></svg>';
+
+/** Copy the loaded file verbatim. */
+async function copyCurrent() {
+  const btn = $('md-copy');
+  if (!btn) return;
+
+  const ok = await writeClipboard(side.content);
+
+  if (!ok) {
+    // Do not claim a selection exists when it may not. Make one, and say so
+    // only if it actually took.
+    let selected = false;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(document.querySelector('.md'));
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      selected = true;
+    } catch { /* nothing selectable */ }
+
+    btn.classList.remove('done');
+    btn.innerHTML = COPY_ICON + (selected ? 'Selected — press ⌘C' : 'Copy failed');
+    setTimeout(() => { btn.innerHTML = COPY_ICON + 'Copy'; }, 2600);
+    return;
+  }
+
+  btn.classList.add('done');
+  btn.innerHTML = TICK_ICON + 'Copied';
+  setTimeout(() => {
+    btn.classList.remove('done');
+    btn.innerHTML = COPY_ICON + 'Copy';
+  }, 1800);
+}
+
+/**
+ * 127.0.0.1 counts as a secure context so the async clipboard API is normally
+ * available, but fall back to a hidden textarea for the cases where it is not
+ * (an unfocused document, or a browser that refuses the permission).
+ */
+async function writeClipboard(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* fall through */ }
+
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+    document.body.append(ta);
+    ta.select();
+    const done = document.execCommand('copy');
+    ta.remove();
+    return done;
+  } catch {
+    return false;
+  }
+}
+
+const openSide = () => { document.body.classList.add('side-open'); };
+const closeSide = () => { document.body.classList.remove('side-open'); };
+
+const fmtBytes = (n) =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`;
+
+async function loadFileList(force = false) {
+  if (!force && side.files.length && Date.now() - side.loadedAt < 15000) return side.files;
+  try {
+    const d = await (await fetch('/api/files')).json();
+    side.files = d.files || [];
+    side.loadedAt = Date.now();
+  } catch {
+    side.files = [];
+  }
+  return side.files;
+}
+
+function renderBrowser(filter = '') {
+  const body = $('side-body');
+  $('side-name').textContent = 'Transcripts';
+  $('side-sub').textContent = `${side.files.length} file${side.files.length === 1 ? '' : 's'}`;
+  $('side-back').hidden = true;
+
+  const needle = filter.trim().toLowerCase();
+  const shown = needle
+    ? side.files.filter((f) => `${f.group}/${f.name}`.toLowerCase().includes(needle))
+    : side.files;
+
+  // Group by folder, keeping the newest-first order the server returned.
+  const groups = new Map();
+  for (const f of shown) {
+    const key = `${f.root}\u0000${f.group}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+
+  body.innerHTML = `
+    <div class="side-filter">
+      <input type="text" id="side-search" placeholder="Filter by name or folder…"
+             value="${escapeHtml(filter)}" autocomplete="off">
+    </div>
+    ${shown.length ? [...groups.entries()].map(([key, list]) => {
+      const [root, group] = key.split('\u0000');
+      return `<div class="fgroup">
+        <div class="h">${escapeHtml(group || '(root)')} · ${escapeHtml(root)}</div>
+        ${list.map((f) => `
+          <button class="frow" type="button" data-path="${escapeHtml(f.path)}"
+                  aria-current="${side.current === f.path}">
+            <span class="t">${escapeHtml(f.name.replace(/-transcript\.\w+$/, ''))}</span>
+            <span class="s">${fmtBytes(f.size)}</span>
+          </button>`).join('')}
+      </div>`;
+    }).join('') : `<div class="side-empty">Nothing matches “${escapeHtml(filter)}”.</div>`}`;
+
+  const search = $('side-search');
+  search.oninput = () => {
+    const pos = search.selectionStart;
+    renderBrowser(search.value);
+    const next = $('side-search');
+    next.focus();
+    next.setSelectionRange(pos, pos);
+  };
+  body.querySelectorAll('.frow').forEach((b) => {
+    b.onclick = () => showFile(b.dataset.path);
+  });
+}
+
+async function showFile(path) {
+  openSide();
+  side.current = path;
+
+  const body = $('side-body');
+  body.innerHTML = '<div class="side-empty">Loading…</div>';
+  $('side-back').hidden = false;
+
+  try {
+    const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+    const d = await res.json();
+
+    if (d.error) {
+      $('side-name').textContent = 'Cannot preview';
+      $('side-sub').textContent = '';
+      body.innerHTML = `<div class="side-empty">${escapeHtml(d.error)}</div>`;
+      return;
+    }
+
+    $('side-name').textContent = d.name;
+    $('side-sub').textContent =
+      `${fmtBytes(d.size)} · ${new Date(d.mtime).toLocaleString()}`;
+
+    // Keep the source around so Copy hands over the original markdown rather
+    // than the rendered DOM's text.
+    side.content = d.content;
+
+    // Only .md gets rendered; the subtitle and plain-text formats are shown
+    // verbatim, since running them through a markdown parser would mangle them.
+    const rendered = /\.md$/i.test(d.name)
+      ? mdToHtml(d.content)
+      : `<pre><code>${escapeHtml(d.content)}</code></pre>`;
+
+    body.innerHTML = `
+      <div class="md-tools">
+        <button class="md-copy" id="md-copy" type="button"
+                title="Copy the whole file">${COPY_ICON}Copy</button>
+      </div>
+      <div class="md">${rendered}</div>`;
+
+    $('md-copy').onclick = copyCurrent;
+    body.scrollTop = 0;
+  } catch (err) {
+    body.innerHTML = `<div class="side-empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function showBrowser(force = false) {
+  openSide();
+  $('side-body').innerHTML = '<div class="side-empty">Loading…</div>';
+  await loadFileList(force);
+  renderBrowser();
+}
+
+$('side-toggle').onclick = () => showBrowser(true);
+$('side-close').onclick = closeSide;
+$('side-back').onclick = () => showBrowser();
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('side-open')) closeSide();
+});
+
+/* Any output path printed on the page opens in the sidebar. */
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-preview]');
+  if (el) showFile(el.dataset.preview);
+});
+
+/* ---------- organizer ----------
+ * The same control is mounted before a run and after one, so the shared
+ * `orgState` keeps them in step: change the grouping on one and the other
+ * already agrees.
+ */
+const orgState = { by: 'customer', mode: 'copy', out: '' };
+
+function mountOrganizer(container) {
+  container.innerHTML = `
+    <div class="org-controls">
+      <div class="field">
+        <label>Group by</label>
+        <select data-org="by" class="mono">
+          <option value="customer">Customer — Pennrose, LLC/</option>
+          <option value="call">Call — Aquera / Pennrose: implementation calls/</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>How</label>
+        <select data-org="mode" class="mono">
+          <option value="copy">Copy — originals stay put</option>
+          <option value="link">Hardlink — no extra disk</option>
+          <option value="move">Move — relocate, tidy empty day folders</option>
+        </select>
+      </div>
+      <div class="field wide">
+        <label>Destination</label>
+        <input type="text" data-org="out" class="mono" placeholder="sorted">
+      </div>
+    </div>
+    <div class="org-actions">
+      <button type="button" data-org-act="preview">Preview</button>
+      <button type="button" class="primary" data-org-act="run">Organize</button>
+      <span class="note" data-org="cmd"></span>
+    </div>
+    <div class="org-result" data-org="result"></div>`;
+
+  const q = (sel) => container.querySelector(sel);
+  const by = q('[data-org=by]');
+  const mode = q('[data-org=mode]');
+  const out = q('[data-org=out]');
+
+  const sync = () => {
+    by.value = orgState.by;
+    mode.value = orgState.mode;
+    out.value = orgState.out;
+    const flag = { copy: '', link: ' --link', move: ' --move' }[orgState.mode];
+    q('[data-org=cmd]').textContent = `node organize.js --by ${orgState.by}${flag}`;
+  };
+
+  for (const [el, key] of [[by, 'by'], [mode, 'mode'], [out, 'out']]) {
+    el.addEventListener('input', () => {
+      orgState[key] = el.value;
+      organizers.forEach((c) => c !== container && syncers.get(c)());
+      sync();
+    });
+  }
+
+  q('[data-org-act=preview]').onclick = () => runOrganize(container, true);
+  q('[data-org-act=run]').onclick = () => runOrganize(container, false);
+
+  organizers.push(container);
+  syncers.set(container, sync);
+  sync();
+}
+
+const organizers = [];
+const syncers = new Map();
+
+async function runOrganize(container, dryRun) {
+  const panel = container.querySelector('[data-org=result]');
+  const buttons = container.querySelectorAll('[data-org-act]');
+  buttons.forEach((b) => { b.disabled = true; });
+
+  panel.classList.add('show');
+  panel.innerHTML = '<div class="org-head">Working…</div>';
+
+  try {
+    const r = await fetch('/api/organize', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...orgState, dryRun }),
+    });
+    const d = await r.json();
+
+    if (d.fatal) {
+      panel.innerHTML = `<div class="org-head" style="color:var(--bad)">${escapeHtml(d.fatal)}</div>`;
+      return;
+    }
+    if (!d.total) {
+      panel.innerHTML = `<div class="org-head">No transcript files found in
+        <span class="path">${escapeHtml(d.src)}</span></div>`;
+      return;
+    }
+
+    const verb = d.dryRun ? 'Would organize' : 'Organized';
+    const noun = { copy: 'copied', link: 'hardlinked', move: 'moved' }[d.mode];
+
+    panel.innerHTML = `
+      <div class="org-head">
+        <b>${verb} ${d.total} file${d.total === 1 ? '' : 's'}</b>
+        into ${d.groups.length} folder${d.groups.length === 1 ? '' : 's'}
+        by ${escapeHtml(d.by)}${d.dryRun ? '' : ` · ${noun}`}
+        ${d.failed ? `<span style="color:var(--bad)">· ${d.failed} failed</span>` : ''}
+        <span class="path">→ ${escapeHtml(d.out)}</span>
+      </div>
+      <div class="org-groups">
+        ${d.groups.map((g, i) => `
+          <details class="org-group"${i === 0 ? ' open' : ''}>
+            <summary>
+              <svg class="chev" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                   stroke="currentColor" stroke-width="3"><path d="m9 6 6 6-6 6"
+                   stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span class="lbl">${escapeHtml(g.label)}</span>
+              <span class="n">${g.count}</span>
+            </summary>
+            ${g.files.map((f) => `<div class="org-file${f.error ? ' err' : ''}${
+              f.abs && !f.error && !d.dryRun ? ' link' : ''}"${
+              f.abs && !f.error && !d.dryRun ? ` data-preview="${escapeHtml(f.abs)}" title="Preview"` : ''
+            }>${escapeHtml(f.error ? `${f.to} — ${f.error}` : f.to)}</div>`).join('')}
+          </details>`).join('')}
+      </div>`;
+  } catch (err) {
+    panel.innerHTML = `<div class="org-head" style="color:var(--bad)">${escapeHtml(err.message)}</div>`;
+  } finally {
+    buttons.forEach((b) => { b.disabled = false; });
+  }
 }
 
 /* ---------- extension hand-off ----------
