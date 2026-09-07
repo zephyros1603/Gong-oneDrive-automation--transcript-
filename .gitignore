@@ -3,4 +3,5 @@ gong.env.bak
 raw/
 transcripts/
 logs/
+.server.pid
 ui/_probe.html

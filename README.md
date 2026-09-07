@@ -90,6 +90,14 @@ node serve.js            # http://127.0.0.1:7878
 node serve.js --port 9000
 ```
 
+**Test connection** probes the session in the order things actually fail —
+cookie shape, then auth, then workspace listing, then a real filtered search —
+and reports which step broke. A cookie can authenticate and still be unable to
+search, so the last check is the one that proves the app will work. It also
+decodes the cookie's own JWTs to show the account email, the sign-in provider,
+and when the session actually expires, and fills in the workspace list on
+success so you don't need **Detect** as well.
+
 Every field is prefilled from `gong.env`. Fill the form, hit **Pull
 transcripts**, and the options fade out into a live progress view — each call
 appears under its day folder with a spinner, then a check, a red cross with
@@ -101,12 +109,93 @@ four namespace IDs, format, output and raw directories, concurrency, and dry
 run. A live CLI-equivalent line at the bottom of the form shows the command
 your settings correspond to.
 
+The progress scene runs from `gong.png` to `laptop-cut.png`, with the wire
+between them doubling as the progress bar and the running count drawn onto the
+laptop screen. `laptop-cut.png` exists because the original artwork had its
+checkerboard *painted in* at full opacity — dropped straight onto the dark
+scene it rendered as a grey checkered block. It was made transparent by
+flood-filling inward from the edges, so only edge-connected background is
+cleared and the laptop's own white bezel and keys survive.
+
 **Why a server and not a plain HTML file.** The page has to read `gong.env`,
 write transcripts to disk, and call Gong's internal API with your session
 cookie. A browser can do none of those from a `file://` page or a hosted
 origin — CORS blocks the API and there is no filesystem access. So the browser
 only renders; `serve.js` does the work, binds to `127.0.0.1` only, and serves
 files exclusively out of `ui/`. The cookie never leaves your machine.
+
+## Starting it (no terminal needed)
+
+Double-click, in Finder:
+
+| File | Does |
+|---|---|
+| **Start Gong UI.command** | Starts the server and opens the browser |
+| **Stop Gong UI.command** | Stops it and frees the port |
+
+`.command`, not `.sh`: double-clicking a `.sh` opens it in a text editor,
+while Finder runs a `.command` in Terminal. Both are plain bash. Finder also
+launches them with a bare `PATH`, so the start script finds `node` from
+`NODE_BIN` in `gong.env` and falls back to Homebrew and nvm locations.
+
+Starting twice is safe — it reuses the running server rather than fighting
+over the port. Logs go to `logs/server.log`, the pid to `.server.pid`. Set
+`GONG_UI_PORT` to use a port other than 7878.
+
+## The Chrome extension (getting the cookie without DevTools)
+
+`extension/` is a small Chrome extension so a non-technical user never has to
+open DevTools: **sign in to Gong in Chrome as normal, then click the
+extension button.** It reads the session and sends it to the running puller,
+which verifies it and writes `gong.env` itself.
+
+Install once, per machine:
+
+1. Start the puller (**Start Gong UI.command**).
+2. In Chrome open `chrome://extensions`.
+3. Turn on **Developer mode** (top right).
+4. Click **Load unpacked** and pick the `extension/` folder.
+5. Pin *Gong Cookie Bridge* to the toolbar.
+
+Then, whenever the session is stale: open Gong, be signed in, click the
+extension, click **Send session to puller**. It reports the account, tenant,
+how many calls you can see, and the expiry date. If the UI is already open in
+a tab, it notices within a few seconds, refills itself and re-tests — no
+copy-paste anywhere.
+
+The extension is the only approach that can do this. `g-session` is
+`HttpOnly`, so page JavaScript and bookmarklets structurally cannot read it;
+`chrome.cookies` is the sole API with access.
+
+### Which cookie actually matters
+
+Determined by dropping cookies one at a time against the live API:
+
+| Cookie | Required? |
+|---|---|
+| `last-login` | **Yes.** On its own it authenticates *and* searches |
+| `g-session` | No — requests succeed without it |
+| `cf_clearance` | No — and Chrome often does not have one at all |
+| `cell`, `__cf_bm`, `AWSALB` | No |
+
+`last-login` is the session credential: a JWT holding your account email and
+the real expiry, which is why **Test connection** can report both without
+asking Gong. `cf_clearance` is a Cloudflare challenge cookie that only exists
+after a challenge, so requiring it rejects perfectly good sessions — an
+earlier version of the extension did exactly that.
+
+The extension still sends every gong.io cookie it finds, because that is what
+a browser would do, and only refuses outright when `last-login` is absent
+(which means nobody is signed in). Everything past that is the server's
+verification to judge, not the extension's.
+
+Safety properties worth knowing:
+
+- The server **verifies before it writes** — a dead session is rejected and
+  `gong.env` keeps the cookie that still works.
+- `/api/cookie` accepts CORS only from `chrome-extension://` origins, so a web
+  page cannot push cookies at the server even though it listens on loopback.
+- Nothing leaves the machine: the extension talks to `127.0.0.1` only.
 
 ## The three ID namespaces
 
@@ -225,10 +314,17 @@ full path for that reason.
 
 ## Caveats
 
-**The cookie is the real constraint.** `cf_clearance` and `g-session` expire in
-hours. A scheduled job works for a day or two, then logs `no CSRF token —
-cookie in gong.env is expired` every morning until you re-copy it. For
-genuinely unattended use, switch to the public API — `us-81357.api.gong.io`,
+**The cookie expires, but not as fast as first assumed.** Measured on a live
+session: the `cell` and `last-login` JWTs carry an expiry about **16 days**
+out, and a `cf_clearance` three days old still authenticated fine. The
+short-lived CSRF token is re-fetched on every run, so it never matters. What
+does end a session early is signing in again elsewhere, which rotates
+`g-session`. Use **Test connection** to see the real expiry rather than
+guessing — it decodes it from the cookie itself.
+
+So a scheduled daily job is realistic for a couple of weeks per refresh, and
+the Chrome extension makes refreshing a single click. For genuinely
+hands-off operation, switch to the public API — `us-81357.api.gong.io`,
 Basic auth from an access key, no expiry:
 
 ```
@@ -256,9 +352,13 @@ unmodified integer literals verbatim, so the shell pipeline is safe.
 | `gong.js` | Everything: auth, search, pagination, download, foldering |
 | `serve.js` | Local web server for the UI (loopback only) |
 | `ui/index.html` | The web UI — form, progress animation, summary |
+| `ui/assets/` | Scene artwork: `gong.png`, `laptop.png` (source), `laptop-cut.png` |
 | `gongTranscript.js` | Renderer: text / md / srt / vtt. Imported by `gong.js` |
 | `gong.env` | Config + cookie. Gitignored, `chmod 600` |
 | `com.sanjan.gong-transcript.plist` | launchd schedule |
+| `Start Gong UI.command` | Double-click to start the server and open the UI |
+| `Stop Gong UI.command` | Double-click to stop it |
+| `extension/` | Chrome extension that sends the session to the puller |
 | `legacy-bash/` | The superseded bash/python version. Safe to delete |
 
 ## Notes on the port

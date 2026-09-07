@@ -631,7 +631,11 @@ function parseArgs(argv) {
 
 async function main() {
   const [command = '', ...rest] = process.argv.slice(2);
-  if (!command || command === 'help') { console.log(USAGE); return 0; }
+  // Accept `--help`/`-h` in the command slot too, not just after a command.
+  if (!command || ['help', '--help', '-h'].includes(command)) {
+    console.log(USAGE);
+    return 0;
+  }
 
   const { args, overrides } = parseArgs(rest);
   // `account` takes an id before the dates; `me` does not.

@@ -37,6 +37,13 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 };
 
 // ---------------------------------------------------------------------------
@@ -234,6 +241,217 @@ async function runJob(params, stream) {
 }
 
 // ---------------------------------------------------------------------------
+// connection test
+// ---------------------------------------------------------------------------
+
+/** "a=1; b=2" -> Map. Values may themselves contain "=" (JWTs, base64). */
+function cookieMap(raw) {
+  const m = new Map();
+  for (const part of String(raw).split(';')) {
+    const at = part.indexOf('=');
+    if (at === -1) continue;
+    m.set(part.slice(0, at).trim(), part.slice(at + 1).trim());
+  }
+  return m;
+}
+
+function jwtPayload(token) {
+  try {
+    const part = String(token).split('.')[1];
+    if (!part) return null;
+    return JSON.parse(
+      Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The cookie is self-describing if you read it: `cell` and `last-login` are
+ * JWTs carrying the account email (`gu`) and an expiry (`exp`), and
+ * cf_clearance embeds its issue time as the second dash-separated field. So
+ * a fair amount can be reported before making a single request.
+ */
+function inspectCookie(raw) {
+  const jar = cookieMap(raw);
+
+  // Determined by dropping cookies one at a time against the live API:
+  // `last-login` alone authenticates AND searches successfully. `g-session`,
+  // `cf_clearance`, `cell`, `__cf_bm` and `AWSALB` are all individually
+  // droppable, and cf_clearance is frequently absent entirely because
+  // Cloudflare only issues it after a challenge. So `last-login` is the only
+  // cookie worth blocking on; everything else is sent because a browser
+  // would send it, not because it is known to be needed.
+  const critical = ['last-login'];
+  const helpful = ['g-session', 'cell', 'cf_clearance', '__cf_bm', 'AWSALB', 'ajs_user_id'];
+
+  const cell = jwtPayload(jar.get('cell'));
+  const lastLogin = jwtPayload(jar.get('last-login'));
+
+  let cfIssued = null;
+  const cf = jar.get('cf_clearance');
+  if (cf) {
+    const ts = Number(String(cf).split('-')[1]);
+    if (Number.isFinite(ts) && ts > 1e9) cfIssued = ts * 1000;
+  }
+
+  return {
+    count: jar.size,
+    bytes: String(raw).length,
+    missing: critical.filter((k) => !jar.has(k)),
+    absentHelpful: helpful.filter((k) => !jar.has(k)),
+    email: cell?.gu || lastLogin?.gu || null,
+    cellExpires: cell?.exp ? cell.exp * 1000 : null,
+    loginExpires: lastLogin?.exp ? lastLogin.exp * 1000 : null,
+    identityProvider: lastLogin?.gp || null,
+    cfIssued,
+    cellRegion: cell?.cell || null,
+  };
+}
+
+/**
+ * Probe the session in the order things actually fail: cookie shape, then
+ * auth, then workspace listing, then an actual filtered search. A cookie can
+ * authenticate and still be unable to search, so the last step is the one
+ * that proves the app will work.
+ */
+async function testConnection(body) {
+  const overrides = {};
+  if (body.GONG_COOKIE) overrides.GONG_COOKIE = body.GONG_COOKIE;
+  if (body.GONG_HOST) overrides.GONG_HOST = body.GONG_HOST;
+  if (body.GONG_WORKSPACE_ID) overrides.GONG_WORKSPACE_ID = body.GONG_WORKSPACE_ID;
+
+  const cfg = loadConfig(overrides);
+  const cookie = inspectCookie(cfg.cookie);
+  const checks = [];
+  const result = { host: cfg.host, cookie, checks, ok: false };
+
+  if (cookie.missing.length) {
+    checks.push({
+      step: 'cookie', ok: false,
+      detail: `missing ${cookie.missing.join(', ')} — the session cookie is not present, sign in to Gong first`,
+    });
+    return result;
+  }
+  checks.push({ step: 'cookie', ok: true, detail: `${cookie.count} cookies, all critical ones present` });
+
+  const gong = new Gong(cfg);
+
+  // 1. auth
+  const started = Date.now();
+  let rtkn;
+  try {
+    rtkn = await fetch(`${cfg.base}/ajax/common/rtkn`, {
+      headers: { cookie: cfg.cookie, accept: 'application/json' },
+    });
+  } catch (err) {
+    checks.push({ step: 'auth', ok: false, detail: `cannot reach ${cfg.host}: ${err.message}` });
+    return result;
+  }
+  if (!rtkn.ok) {
+    // A wrong tenant host answers 401 too, so name both causes rather than
+    // sending someone off to re-copy a cookie that was fine.
+    const why = rtkn.status === 401 || rtkn.status === 403
+      ? `the cookie has expired, or ${cfg.host} is not your tenant`
+      : 'unexpected response';
+    checks.push({ step: 'auth', ok: false, detail: `HTTP ${rtkn.status} — ${why}` });
+    return result;
+  }
+
+  const token = jsonOrNull(await rtkn.text())?.token;
+  if (!token) {
+    checks.push({ step: 'auth', ok: false, detail: 'no CSRF token returned' });
+    return result;
+  }
+  gong.csrf = token;
+  const jwt = jwtPayload(token);
+  gong.userId = cfg.userId || (jwt?.userId != null ? String(jwt.userId) : null);
+  result.userId = gong.userId;
+  result.csrfExpires = jwt?.exp ? jwt.exp * 1000 : null;
+  checks.push({
+    step: 'auth', ok: true,
+    detail: `authenticated as ${cookie.email || gong.userId} in ${Date.now() - started} ms`,
+  });
+
+  // 2. workspaces
+  try {
+    result.workspaces = await gong.workspaces();
+    gong.workspaceId = cfg.workspaceId || result.workspaces[0]?.id;
+    checks.push({
+      step: 'workspaces', ok: true,
+      detail: result.workspaces.map((w) => w.name).join(', ') || 'none visible',
+    });
+  } catch (err) {
+    checks.push({ step: 'workspaces', ok: false, detail: err.message });
+    return result;
+  }
+
+  // 3. the search that the app actually depends on
+  try {
+    const page = await gong.post(
+      `/conversations/ajax/results?workspace-id=${gong.workspaceId}`,
+      {
+        callsSearchJson: JSON.stringify({
+          search: { type: 'And', filters: [filterMe(gong.userId)] },
+          sort: null,
+        }),
+        pageSize: 1,
+        callsOffset: 0,
+      }
+    );
+    result.myCalls = page.numOfTotalItemsThatPassedFilter ?? 0;
+    checks.push({
+      step: 'search', ok: true,
+      detail: `${result.myCalls} call${result.myCalls === 1 ? '' : 's'} visible to you`,
+    });
+  } catch (err) {
+    checks.push({
+      step: 'search', ok: false,
+      detail: `${err.message} — auth works but search does not; try another workspace`,
+    });
+    return result;
+  }
+
+  result.ok = true;
+  return result;
+}
+
+const jsonOrNull = (t) => { try { return JSON.parse(t); } catch { return null; } };
+
+// ---------------------------------------------------------------------------
+// cookie intake (Chrome extension)
+// ---------------------------------------------------------------------------
+
+// Bumped whenever the cookie changes on disk, so an open UI can notice that
+// the extension delivered a fresh one and refill itself.
+let cookieVersion = Date.now();
+
+/**
+ * Accept a cookie pushed by the browser extension. Verified before it is
+ * written, so a bad paste can never replace a working cookie in gong.env.
+ */
+async function receiveCookie(body) {
+  const cookie = String(body.cookie || '').trim();
+  if (!cookie) return { ok: false, fatal: 'no cookie in the request' };
+
+  const host = String(body.host || '').trim() || loadConfig().host;
+  const test = await testConnection({ GONG_COOKIE: cookie, GONG_HOST: host });
+
+  if (!test.ok) return { ...test, saved: false };
+
+  saveEnv({ GONG_COOKIE: cookie, GONG_HOST: host });
+  cookieVersion = Date.now();
+
+  console.log(
+    `  ✓ cookie received from ${body.source || 'extension'} — ` +
+    `${test.cookie.email || test.userId}, ${test.myCalls} calls, ` +
+    `expires ${new Date(test.cookie.cellExpires).toLocaleString()}`
+  );
+  return { ...test, saved: true };
+}
+
+// ---------------------------------------------------------------------------
 // http
 // ---------------------------------------------------------------------------
 
@@ -254,10 +472,48 @@ const readBody = (req) =>
     });
   });
 
+/**
+ * The extension calls in from a chrome-extension:// origin, which needs CORS.
+ * Only extension origins are allowed — a random web page must not be able to
+ * push cookies into this server, even on loopback.
+ */
+function allowExtension(req, res) {
+  const origin = req.headers.origin || '';
+  if (!/^chrome-extension:\/\//.test(origin)) return false;
+  res.setHeader('access-control-allow-origin', origin);
+  res.setHeader('access-control-allow-headers', 'content-type');
+  res.setHeader('access-control-allow-methods', 'POST, OPTIONS');
+  res.setHeader('vary', 'origin');
+  return true;
+}
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
+    if (url.pathname === '/api/cookie') {
+      allowExtension(req, res);
+
+      if (req.method === 'OPTIONS') {           // preflight
+        res.writeHead(204);
+        return res.end();
+      }
+      if (req.method === 'GET') {               // extension's reachability probe
+        return json(res, 200, { up: true, host: loadConfig().host });
+      }
+      if (req.method === 'POST') {
+        try {
+          return json(res, 200, await receiveCookie(await readBody(req)));
+        } catch (err) {
+          return json(res, 200, { ok: false, saved: false, fatal: err.message || String(err) });
+        }
+      }
+    }
+
+    if (url.pathname === '/api/pulse' && req.method === 'GET') {
+      return json(res, 200, { cookieVersion });
+    }
+
     // --- api ---------------------------------------------------------------
     if (url.pathname === '/api/config' && req.method === 'GET') {
       return json(res, 200, envDefaults());
@@ -273,6 +529,14 @@ const server = createServer(async (req, res) => {
       if (!rtkn.ok) return json(res, 502, { error: `HTTP ${rtkn.status}` });
       gong.csrf = JSON.parse(await rtkn.text()).token;
       return json(res, 200, { workspaces: await gong.workspaces() });
+    }
+
+    if (url.pathname === '/api/test' && req.method === 'POST') {
+      try {
+        return json(res, 200, await testConnection(await readBody(req)));
+      } catch (err) {
+        return json(res, 200, { ok: false, fatal: err.message || String(err), checks: [] });
+      }
     }
 
     if (url.pathname === '/api/save-env' && req.method === 'POST') {
