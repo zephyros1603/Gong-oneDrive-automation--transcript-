@@ -1245,6 +1245,9 @@ async function run() {
       const body = Object.fromEntries(keys.map((k) => [k, payload[k]]));
       if (payload.from) body.GONG_DAY_FROM = payload.from;
       if (payload.to) body.GONG_DAY_TO = payload.to;
+      // Remember where the organizer puts things, so the next session and the
+      // preview sidebar agree without being told again.
+      if (orgState.out) body.GONG_SORTED_DIR = orgState.out;
       await fetch('/api/save-env', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -1480,6 +1483,7 @@ function mdToHtml(src) {
 /* ---------- sidebar ---------- */
 const side = {
   files: [],
+  roots: [],
   current: null,
   content: '',
   loadedAt: 0,
@@ -1569,6 +1573,7 @@ async function loadFileList(force = false) {
   try {
     const d = await (await fetch('/api/files')).json();
     side.files = d.files || [];
+    side.roots = d.roots || [];
     side.loadedAt = Date.now();
   } catch {
     side.files = [];
@@ -1611,7 +1616,17 @@ function renderBrowser(filter = '') {
             <span class="s">${fmtBytes(f.size)}</span>
           </button>`).join('')}
       </div>`;
-    }).join('') : `<div class="side-empty">Nothing matches “${escapeHtml(filter)}”.</div>`}`;
+    }).join('') : `<div class="side-empty">${
+      needle
+        ? `Nothing matches “${escapeHtml(filter)}”.`
+        : `No transcripts found. Searched:${side.roots.map((r) =>
+            `<div style="margin-top:8px;font:11.5px/1.5 var(--mono);color:${
+              r.exists ? 'var(--muted)' : 'var(--bad)'}">${escapeHtml(r.path)}<br>` +
+            `<span style="color:var(--faint)">${r.exists ? `${r.count} file(s)` : 'does not exist'}` +
+            ` · ${escapeHtml(r.label)}</span></div>`).join('')
+          }<div style="margin-top:14px;font-size:11.5px;color:var(--faint)">` +
+          `Set <code>GONG_OUT_DIR</code> in gong.env to where your transcripts live.</div>`
+    }</div>`}`;
 
   const search = $('side-search');
   search.oninput = () => {

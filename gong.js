@@ -113,6 +113,15 @@ export function loadConfig(overrides = {}) {
     format: pick('GONG_FORMAT') || 'md',
     outDir: resolveDir(pick('GONG_OUT_DIR'), 'transcripts'),
     rawDir: resolveDir(pick('GONG_RAW_DIR'), 'raw'),
+    // Defaults beside the transcripts rather than inside the project, so
+    // pointing GONG_OUT_DIR at an external folder keeps the sorted tree with
+    // it. Set GONG_SORTED_DIR to put it anywhere.
+    sortedDir: resolveDir(
+      pick('GONG_SORTED_DIR'),
+      join(resolveDir(pick('GONG_OUT_DIR'), 'transcripts'), '..', 'sorted')
+    ),
+    // Extra folders the preview sidebar should index, colon-separated.
+    previewDirs: pick('GONG_PREVIEW_DIRS') || '',
     pageSize: Number(pick('GONG_PAGE_SIZE') || 100),
     concurrency: Math.max(1, Number(pick('GONG_CONCURRENCY') || 4)),
   };

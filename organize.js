@@ -174,7 +174,7 @@ export function plan({ src, out, by = 'customer', rawDir }) {
 export function organize(opts = {}) {
   const cfg = loadConfig();
   const src = resolvePath(opts.src, cfg.outDir);
-  const out = resolvePath(opts.out, join(cfg.outDir, '..', 'sorted'));
+  const out = resolvePath(opts.out, cfg.sortedDir);
   const rawDir = resolvePath(opts.rawDir, cfg.rawDir);
   const by = opts.by === 'call' ? 'call' : 'customer';
   const mode = ['move', 'link'].includes(opts.mode) ? opts.mode : 'copy';
@@ -227,6 +227,7 @@ export function organize(opts = {}) {
   return {
     ok: failed === 0,
     by, mode, dryRun, src, out,
+    srcExists: existsSync(src),
     total: groups.reduce((n, g) => n + g.files.length, 0),
     done, failed,
     groups: groups.map((g) => ({

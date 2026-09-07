@@ -26,7 +26,9 @@ lift the `Cookie:` header out of it.
 | `GONG_ACCOUNT_ID` | Gong **account** id, for `gong-calls.sh` |
 | `GONG_DAY_FROM` / `GONG_DAY_TO` | Default date range |
 | `GONG_FORMAT` | `text` \| `md` \| `srt` \| `vtt` |
-| `GONG_OUT_DIR` | Output root, default `transcripts` |
+| `GONG_OUT_DIR` | Output root for the day folders, default `transcripts` |
+| `GONG_SORTED_DIR` | Where `organize.js` writes. Blank = `sorted` **next to** `GONG_OUT_DIR` |
+| `GONG_PREVIEW_DIRS` | Extra folders for the preview sidebar, colon-separated |
 | `NODE_BIN` | Absolute node path — required, see *Why NODE_BIN* |
 
 Anything already in the environment beats the file, so one-off overrides work:
@@ -213,6 +215,18 @@ library, so the UI keeps working with no network. It escapes the source before
 applying any inline rule, so transcript text cannot inject markup, and only
 `http(s)`/`mailto` links become anchors. `.srt`, `.vtt` and `.txt` are shown
 verbatim — running subtitles through a markdown parser would mangle them.
+
+Both the organizer and the sidebar work off `GONG_OUT_DIR`, so they follow
+transcripts stored outside the project folder. If a configured folder is
+missing or empty the sidebar names every path it searched, in red, rather than
+showing a blank list — a wrong `GONG_OUT_DIR` is then obvious instead of
+looking like a broken feature.
+
+`GONG_SORTED_DIR` defaults to `sorted` beside `GONG_OUT_DIR`, not inside the
+project, so an external output folder keeps its sorted tree with it. If you
+organize somewhere else entirely, set `GONG_SORTED_DIR` (or tick **Save back
+to gong.env** in the UI, which now persists it) or the sidebar will not index
+it. `GONG_PREVIEW_DIRS` covers any further locations.
 
 Two endpoints back it: `/api/files` lists what is previewable, and
 `/api/file?path=` reads one. Both resolve the path and check it against the

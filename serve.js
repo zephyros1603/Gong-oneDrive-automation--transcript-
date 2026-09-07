@@ -68,7 +68,7 @@ function envDefaults() {
     GONG_OUT_DIR: cfg.outDir,
     GONG_RAW_DIR: cfg.rawDir,
     GONG_CONCURRENCY: String(cfg.concurrency),
-    GONG_SORTED_DIR: join(cfg.outDir, '..', 'sorted'),
+    GONG_SORTED_DIR: cfg.sortedDir,
   };
 }
 
@@ -468,9 +468,16 @@ const PREVIEWABLE = /\.(md|txt|srt|vtt)$/i;
  */
 function previewRoots() {
   const cfg = loadConfig();
+  const extra = (cfg.previewDirs || '')
+    .split(':')
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .map((d) => ({ label: basename(d) || d, path: resolve(d) }));
+
   return [
     { label: 'by day', path: resolve(cfg.outDir) },
-    { label: 'sorted', path: resolve(join(cfg.outDir, '..', 'sorted')) },
+    { label: 'sorted', path: resolve(cfg.sortedDir) },
+    ...extra,
   ].filter((r, i, all) => all.findIndex((o) => o.path === r.path) === i);
 }
 
@@ -615,9 +622,17 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/files' && req.method === 'GET') {
+      const files = listTranscripts();
+      // Report each root's existence and count, so an empty sidebar can say
+      // which folders it actually searched instead of just looking broken.
       return json(res, 200, {
-        roots: previewRoots().map((r) => ({ label: r.label, path: r.path })),
-        files: listTranscripts(),
+        roots: previewRoots().map((r) => ({
+          label: r.label,
+          path: r.path,
+          exists: existsSync(r.path),
+          count: files.filter((f) => f.path.startsWith(r.path + sep)).length,
+        })),
+        files,
       });
     }
 
