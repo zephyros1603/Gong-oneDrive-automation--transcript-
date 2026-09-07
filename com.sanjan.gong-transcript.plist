@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sanjan.gong-transcript</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/sanjanathyady/.nvm/versions/node/v20.20.2/bin/node</string>
+    <string>/Users/sanjanathyady/Desktop/Code/DataGenerations/gong.js</string>
+    <string>me</string>
+    <string>--days</string>
+    <string>2</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/sanjanathyady/Desktop/Code/DataGenerations</string>
+
+  <!-- 09:00 every day. If the Mac is asleep at 09:00, launchd runs the job
+       on the next wake instead of skipping it (cron would skip it). -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/sanjanathyady/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/Users/sanjanathyady/Desktop/Code/DataGenerations/logs/gong.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/sanjanathyady/Desktop/Code/DataGenerations/logs/gong.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
