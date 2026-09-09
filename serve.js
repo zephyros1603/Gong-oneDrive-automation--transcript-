@@ -17,6 +17,7 @@
 import { createServer } from 'node:http';
 import {
   readFileSync, existsSync, writeFileSync, copyFileSync, readdirSync, statSync,
+  mkdirSync,
 } from 'node:fs';
 import { dirname, join, extname, resolve, relative, basename, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +25,16 @@ import {
   Gong, loadConfig, download, filterMe, filterDates, ymd, daysAgo,
 } from './gong.js';
 import { organize } from './organize.js';
+import * as library from './library.js';
+import {
+  listSkills, addSkill, runSkill, claudeBin,
+  listJobs, cancelJob, cancelAll, killAllNow,
+  scanClaudeProcesses, killClaudePids,
+} from './claude-runner.js';
+import {
+  readSettings, writeSettings, rememberSession, expandPath,
+  recordUsage, usageSummary,
+} from './settings.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = join(HERE, 'gong.env');
@@ -47,6 +58,8 @@ const MIME = {
   '.gif': 'image/gif',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.pdf': 'application/pdf',
 };
 
 // ---------------------------------------------------------------------------
@@ -459,79 +472,12 @@ async function receiveCookie(body) {
 // transcript browser
 // ---------------------------------------------------------------------------
 
-const PREVIEWABLE = /\.(md|txt|srt|vtt)$/i;
-
-/**
- * The only directories the preview endpoints will read from. Everything is
- * resolved and prefix-checked against these, so a crafted `path` cannot walk
- * out into the rest of the filesystem.
- */
-function previewRoots() {
-  const cfg = loadConfig();
-  const extra = (cfg.previewDirs || '')
-    .split(':')
-    .map((d) => d.trim())
-    .filter(Boolean)
-    .map((d) => ({ label: basename(d) || d, path: resolve(d) }));
-
-  return [
-    { label: 'by day', path: resolve(cfg.outDir) },
-    { label: 'sorted', path: resolve(cfg.sortedDir) },
-    ...extra,
-  ].filter((r, i, all) => all.findIndex((o) => o.path === r.path) === i);
-}
-
-function insideRoot(target) {
-  const abs = resolve(target);
-  return previewRoots().some(
-    (r) => abs === r.path || abs.startsWith(r.path + sep)
-  );
-}
-
-function listTranscripts() {
-  const out = [];
-
-  const walk = (dir, root) => {
-    let entries;
-    try { entries = readdirSync(dir); } catch { return; }
-
-    // organize.js marks every tree it writes. A sorted tree left inside the
-    // day tree would otherwise be listed as "by day" with `sorted/...` group
-    // names, so re-root the subtree instead of inheriting the wrong label.
-    const here = entries.includes('.gong-sorted')
-      ? { label: 'sorted', path: dir }
-      : root;
-
-    for (const name of entries) {
-      if (name.startsWith('.')) continue;
-      const path = join(dir, name);
-      let st;
-      try { st = statSync(path); } catch { continue; }
-
-      if (st.isDirectory()) walk(path, here);
-      else if (PREVIEWABLE.test(name)) {
-        const rel = relative(here.path, path);
-        const parts = rel.split(sep);
-        out.push({
-          path,
-          rel,
-          name,
-          group: parts.length > 1 ? parts.slice(0, -1).join('/') : '',
-          root: here.label,
-          size: st.size,
-          mtime: st.mtimeMs,
-        });
-      }
-    }
-  };
-
-  for (const root of previewRoots()) walk(root.path, root);
-
-  // Day tree first (that is what a run just wrote), newest first within each.
-  const rank = (r) => (r === 'by day' ? 0 : 1);
-  out.sort((a, b) => rank(a.root) - rank(b.root) || b.mtime - a.mtime);
-  return out;
-}
+// The index lives in library.js so the Workbench, the preview sidebar and the
+// organizer all see the same files, roots and path guard.
+const PREVIEWABLE = library.PREVIEWABLE;
+const previewRoots = () => library.roots();
+const insideRoot = (target) => library.isReadable(target);
+const listTranscripts = () => library.listFiles();
 
 // ---------------------------------------------------------------------------
 // http
@@ -593,7 +539,220 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === '/api/pulse' && req.method === 'GET') {
-      return json(res, 200, { cookieVersion });
+      return json(res, 200, {
+        cookieVersion,
+        inputVersion: library.version('input'),
+        outputVersion: library.version('output'),
+      });
+    }
+
+    // --- workbench ---------------------------------------------------------
+    if (url.pathname === '/api/settings') {
+      if (req.method === 'GET') return json(res, 200, readSettings());
+      if (req.method === 'POST') return json(res, 200, writeSettings(await readBody(req)));
+    }
+
+    if (url.pathname === '/api/skills') {
+      if (req.method === 'GET') {
+        const skills = listSkills();
+        const names = new Set(skills.map((s) => s.name));
+        return json(res, 200, {
+          cli: claudeBin(),
+          skills,
+          // An action whose skill is not installed is a blueprint: the button
+          // still shows, but says so rather than failing at run time.
+          actions: readSettings().actions.map((a) => ({
+            ...a,
+            installed: names.has(a.skill),
+          })),
+        });
+      }
+
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        try {
+          const made = addSkill(body);
+
+          // Adding a skill almost always means wanting a button for it.
+          if (body.addButton !== false) {
+            const current = readSettings();
+            const id = made.dir;
+            writeSettings({
+              actions: [
+                ...current.actions.filter((a) => a.id !== id),
+                {
+                  id,
+                  label: String(body.label || body.name || id).slice(0, 18),
+                  title: String(body.description || '').slice(0, 120),
+                  skill: made.name,
+                  instruction: body.instruction
+                    || `generate the ${body.label || body.name} from the transcript file`,
+                  builtin: false,
+                },
+              ],
+            });
+          }
+          return json(res, 200, { ok: true, ...made });
+        } catch (err) {
+          return json(res, 200, { ok: false, error: err.message });
+        }
+      }
+    }
+
+    if (url.pathname === '/api/tree' && req.method === 'GET') {
+      return json(res, 200, {
+        outputDir: readSettings().outputDir,
+        roots: library.roots().map((r) => ({
+          label: r.label, path: r.path, kind: r.kind, exists: existsSync(r.path),
+        })),
+        folders: library.listFolders(),
+        files: library.listFiles(),
+        inputVersion: library.version('input'),
+        outputVersion: library.version('output'),
+      });
+    }
+
+    if (url.pathname === '/api/running' && req.method === 'GET') {
+      return json(res, 200, { jobs: listJobs(), usage: usageSummary() });
+    }
+
+    if (url.pathname === '/api/cancel' && req.method === 'POST') {
+      const body = await readBody(req);
+      if (body.id) return json(res, 200, { cancelled: cancelJob(body.id) ? 1 : 0 });
+      return json(res, 200, { cancelled: cancelAll() });
+    }
+
+    if (url.pathname === '/api/usage' && req.method === 'GET') {
+      return json(res, 200, usageSummary());
+    }
+
+    // Every Claude CLI process on the machine, classified. Read-only: the UI
+    // shows this before offering to kill anything.
+    if (url.pathname === '/api/claude-processes' && req.method === 'GET') {
+      const found = scanClaudeProcesses();
+      return json(res, 200, {
+        processes: found,
+        counts: {
+          app: found.filter((p) => p.kind === 'app').length,
+          terminal: found.filter((p) => p.kind === 'terminal').length,
+          ide: found.filter((p) => p.kind === 'ide').length,
+        },
+      });
+    }
+
+    if (url.pathname === '/api/kill-claude' && req.method === 'POST') {
+      const body = await readBody(req);
+      const found = scanClaudeProcesses();
+
+      // Only the kinds explicitly asked for. `ide` is never included by
+      // default — that is the Claude Code session in the editor, and killing
+      // it ends whatever work is open there.
+      const kinds = Array.isArray(body.kinds) && body.kinds.length
+        ? body.kinds
+        : ['app'];
+
+      const targets = found.filter((p) => kinds.includes(p.kind));
+
+      // Jobs this server owns go through the registry so their runs are
+      // recorded and their streams told, rather than being killed behind
+      // the app's back.
+      const appCancelled = kinds.includes('app') ? cancelAll() : 0;
+
+      const killed = killClaudePids(
+        targets.filter((p) => p.kind !== 'app').map((p) => p.pid)
+      );
+
+      return json(res, 200, {
+        requested: kinds,
+        appCancelled,
+        killed: killed.map((p) => ({ pid: p.pid, kind: p.kind, command: p.command })),
+        remaining: scanClaudeProcesses().length,
+      });
+    }
+
+    if (url.pathname === '/api/generate' && req.method === 'POST') {
+      const body = await readBody(req);
+      const stream = sse(res);
+
+      let runningId = null;
+      let reported = null;
+
+      try {
+        const settings = readSettings();
+        const action = settings.actions.find((a) => a.id === body.actionId);
+        if (!action) throw new Error(`unknown action: ${body.actionId}`);
+
+        const files = (body.files || []).filter((f) => library.isReadable(f));
+        if (!files.length) throw new Error('select at least one transcript');
+
+        const outputDir = expandPath(body.outputDir || settings.outputDir, settings.outputDir);
+        mkdirSync(outputDir, { recursive: true });
+
+        const before = library.version('output');
+        stream.send({ type: 'start', action, files, outputDir });
+
+        await new Promise((finished) => {
+          const started = runSkill({
+            skill: action.skill,
+            instruction: action.instruction,
+            outputDir,
+            files,
+            sessionId: body.sessionId || null,
+            model: settings.model || '',
+            maxTurns: Number(settings.maxTurns) || 0,
+            label: action.label,
+            cwd: HERE,
+            addDirs: library.roots().map((r) => r.path),
+            onEvent: (e) => {
+              stream.send(e);
+
+              if (e.type === 'done') {
+                reported = e;
+                rememberSession({
+                  id: e.session,
+                  label: `${action.label} · ${new Date().toLocaleString()}`,
+                  actionId: action.id,
+                });
+              }
+
+              if (e.type === 'closed') {
+                // Whatever happened, the run is accounted for — a cancelled
+                // run still cost whatever it had already spent.
+                recordUsage({
+                  actionId: action.id,
+                  label: action.label,
+                  costUsd: reported?.costUsd,
+                  durationMs: reported?.durationMs,
+                  turns: reported?.turns,
+                  files: files.length,
+                  cancelled: Boolean(e.cancelled) || !reported,
+                });
+
+                stream.send({
+                  type: 'output',
+                  changed: library.version('output') !== before,
+                  files: library.listFiles().filter((f) => f.kind === 'output'),
+                });
+                stream.send({ type: 'usage', usage: usageSummary() });
+                finished();
+              }
+            },
+          });
+
+          runningId = started.jobId;
+          stream.send({ type: 'session', session: started.session, jobId: started.jobId });
+
+          // The crucial bit: if the browser goes away — tab closed, navigation,
+          // reload — kill the child. Without this it ran to completion,
+          // billing for output nobody would ever see.
+          res.on('close', () => {
+            if (runningId) cancelJob(runningId);
+          });
+        });
+      } catch (err) {
+        stream.send({ type: 'error', message: err.message || String(err) });
+      }
+      return stream.end();
     }
 
     // --- api ---------------------------------------------------------------
@@ -648,12 +807,25 @@ const server = createServer(async (req, res) => {
       const st = statSync(abs);
       if (st.size > 4e6) return json(res, 413, { error: 'file too large to preview' });
 
+      // ?raw=1 serves the bytes, which is how a generated .docx gets
+      // downloaded — those cannot be rendered in the browser.
+      if (url.searchParams.get('raw')) {
+        res.writeHead(200, {
+          'content-type': MIME[extname(abs)] || 'application/octet-stream',
+          'content-disposition': `attachment; filename="${basename(abs).replace(/"/g, '')}"`,
+          'content-length': st.size,
+        });
+        return res.end(readFileSync(abs));
+      }
+
+      const meta = library.readFile(abs);
       return json(res, 200, {
-        path: abs,
-        name: basename(abs),
-        size: st.size,
-        mtime: st.mtimeMs,
-        content: readFileSync(abs, 'utf8'),
+        path: meta.path,
+        name: meta.name,
+        size: meta.size,
+        mtime: meta.mtime,
+        binary: meta.binary,
+        content: meta.content,
       });
     }
 
@@ -708,4 +880,38 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`\n  Gong transcript UI  →  http://127.0.0.1:${PORT}\n`);
   console.log('  Ctrl-C to stop.\n');
+});
+
+/**
+ * Nothing spawned by this server may outlive it.
+ *
+ * A child `claude` does not die with its parent on macOS, so without these
+ * handlers stopping the server would orphan a running agent that carried on
+ * billing with no way left to see or cancel it.
+ */
+let shuttingDown = false;
+
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+
+  const killed = killAllNow();
+  if (killed) {
+    console.log(`\n  stopped ${killed} running Claude job(s) before exit`);
+  }
+
+  server.close(() => process.exit(0));
+  // Do not wait forever on lingering keep-alive sockets.
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+process.on('SIGHUP', shutdown);
+
+// A crash must not leak children either.
+process.on('exit', () => { killAllNow(); });
+process.on('uncaughtException', (err) => {
+  console.error('  uncaught:', err?.message || err);
+  shutdown();
 });

@@ -1,8 +1,11 @@
 gong.env
 gong.env.bak
+settings.json
 raw/
 transcripts/
 sorted/
+documents/
 logs/
 .server.pid
+node_modules/
 ui/_probe.html

@@ -53,6 +53,27 @@ if [[ $stopped -eq 0 ]]; then
   echo "  · nothing was running on port $PORT"
 fi
 
+# The server kills its own Claude jobs on shutdown, but a force-killed server
+# (kill -9, a crash) cannot. Sweep those up so nothing keeps billing.
+#
+# Only `claude -p` is touched — that is headless print mode, which is how this
+# app invokes it. An interactive `claude` session you started in a terminal has
+# no -p and is deliberately left alone.
+orphans=$(/usr/bin/pgrep -f 'claude -p' 2>/dev/null)
+if [[ -n "$orphans" ]]; then
+  count=$(echo "$orphans" | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+  echo "  · found $count orphaned Claude job(s) from a previous run"
+  # shellcheck disable=SC2086
+  kill $orphans 2>/dev/null
+  sleep 1
+  orphans=$(/usr/bin/pgrep -f 'claude -p' 2>/dev/null)
+  # shellcheck disable=SC2086
+  [[ -n "$orphans" ]] && kill -9 $orphans 2>/dev/null
+  echo "  ✓ stopped them"
+else
+  echo "  · no orphaned Claude jobs"
+fi
+
 if curl -s -o /dev/null -m 1 "http://127.0.0.1:$PORT/api/pulse"; then
   echo "  ✕ something is still answering on port $PORT"
 else

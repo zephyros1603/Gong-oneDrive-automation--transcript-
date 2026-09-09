@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview · Gong Transcripts</title>
+<style>
+  :root {
+    --bg: #0b0d12; --surface: #12151d; --surface-2: #171b25; --surface-3: #1c2130;
+    --line: #252a38; --line-soft: #1d222e; --text: #e7eaf3; --muted: #8f97ad;
+    --faint: #5f6779; --accent: #7c6cf5; --accent-2: #4dd6c1; --accent-soft: #7c6cf522;
+    --ok: #48c78e; --warn: #e9b949; --bad: #ef5f6b;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #eef0f5; --surface: #fff; --surface-2: #f7f8fc; --surface-3: #eef0f7;
+      --line: #dfe2ec; --line-soft: #e9ecf3; --text: #1a1d27; --muted: #5f6779;
+      --faint: #8f97ad; --accent-soft: #7c6cf518;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 var(--sans); -webkit-font-smoothing: antialiased; overflow: hidden;
+  }
+  button { font: inherit; cursor: pointer; }
+
+  .topbar {
+    height: 52px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 16px;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 620; font-size: 13.5px; }
+  .brand img { width: 20px; height: 20px; border-radius: 5px; }
+  .modes {
+    display: flex; background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 9px; padding: 3px; gap: 3px;
+  }
+  .modes a {
+    text-decoration: none; color: var(--muted); padding: 7px 15px; border-radius: 7px;
+    font-size: 12.5px; font-weight: 560; transition: background .15s, color .15s;
+  }
+  .modes a:hover { color: var(--text); }
+  .modes a[aria-current="page"] { background: var(--accent); color: #fff; }
+  .topbar .spacer { flex: 1; }
+  .chip {
+    font: 11.5px/1 var(--mono); color: var(--faint); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 9px; background: var(--surface-2);
+  }
+
+  .shell { display: flex; flex-direction: column; height: 100%; }
+  .panes { flex: 1; min-height: 0; display: flex; }
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  #list { width: 380px; flex: none; background: var(--surface); border-right: 1px solid var(--line); }
+  #doc { flex: 1; background: var(--bg); }
+
+  .splitter { width: 5px; flex: none; cursor: col-resize; position: relative; }
+  .splitter::after {
+    content: ""; position: absolute; inset: 0 2px; background: var(--line); transition: background .15s;
+  }
+  .splitter:hover::after, .splitter.dragging::after { background: var(--accent); }
+  body.resizing { cursor: col-resize; user-select: none; }
+
+  .filter { flex: none; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+  .filter input {
+    width: 100%; padding: 8px 11px; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+    font: 12.5px/1.4 var(--sans);
+  }
+  .filter input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .scroll { flex: 1; min-height: 0; overflow: auto; }
+
+  .fgroup { border-bottom: 1px solid var(--line-soft); }
+  .fgroup > .h {
+    padding: 7px 13px; font: 600 10.5px/1.5 var(--mono); letter-spacing: .04em;
+    color: var(--faint); background: var(--surface-2); position: sticky; top: 0; z-index: 1;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .fgroup > .h .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag {
+    font: 400 9.5px/1 var(--mono); border: 1px solid var(--line);
+    border-radius: 4px; padding: 2px 4px; flex: none;
+  }
+  .tag.out { color: var(--accent-2); border-color: #4dd6c155; }
+
+  .frow {
+    display: flex; align-items: baseline; gap: 9px; width: 100%; text-align: left;
+    padding: 8px 13px; border: none; background: transparent; color: var(--text);
+    font: 12px/1.45 var(--sans); cursor: pointer;
+  }
+  .frow:hover { background: var(--surface-2); }
+  .frow .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .s { flex: none; font: 10.5px/1.4 var(--mono); color: var(--faint); }
+  .frow[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+
+  #doc > header {
+    flex: none; display: flex; align-items: center; gap: 12px;
+    padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  #doc > header .meta { flex: 1; min-width: 0; }
+  #doc > header .nm {
+    font-weight: 620; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  #doc > header .sub { font: 11px/1.5 var(--mono); color: var(--faint); }
+  #doc > .scroll { padding: 22px 26px 60px; }
+
+  .copy {
+    display: flex; align-items: center; gap: 6px; flex: none;
+    padding: 7px 12px; font-size: 12px; font-weight: 560;
+    background: var(--surface-2); border: 1px solid var(--line);
+    border-radius: 8px; color: var(--text);
+  }
+  .copy:hover { border-color: var(--accent); }
+  .copy.done { border-color: #48c78e66; color: var(--ok); }
+
+  .subject {
+    background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 11px 14px; margin-bottom: 20px;
+  }
+  .subject .lbl {
+    font: 600 10px/1.4 var(--sans); letter-spacing: .09em; text-transform: uppercase;
+    color: var(--faint); margin-bottom: 4px;
+  }
+  .subject .val { font-size: 13.5px; font-weight: 560; }
+
+  .empty { padding: 40px 20px; text-align: center; color: var(--faint); font-size: 12.5px; line-height: 1.7; }
+  .empty code { font-family: var(--mono); font-size: 11px; }
+  .binary { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  .binary a { color: var(--accent); }
+
+  @media (max-width: 860px) {
+    #list { width: 260px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar">
+    <div class="brand"><img src="assets/gong.png" alt="">Gong Transcripts</div>
+    <div class="modes">
+      <a href="/">Pull transcripts</a>
+      <a href="/workbench.html">Workbench</a>
+      <a href="/preview.html" aria-current="page">Preview</a>
+    </div>
+    <div class="spacer"></div>
+    <span class="chip" id="count-chip"></span>
+  </div>
+
+  <div class="panes">
+    <section class="pane" id="list">
+      <div class="filter">
+        <input type="text" id="search" placeholder="Filter by name or folder…" autocomplete="off">
+      </div>
+      <div class="scroll" id="file-list"></div>
+    </section>
+
+    <div class="splitter" id="splitter"></div>
+
+    <section class="pane" id="doc">
+      <header>
+        <div class="meta">
+          <div class="nm" id="doc-name">Nothing selected</div>
+          <div class="sub" id="doc-sub"></div>
+        </div>
+        <button class="copy" id="doc-copy" type="button" hidden></button>
+      </header>
+      <div class="scroll" id="doc-body">
+        <div class="empty">Pick a file on the left.</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+import {
+  mdToHtml, escapeHtml, parseEmail, looksLikeEmail, attachCopy, COPY_ICON, MD_STYLES,
+} from './md.js';
+
+// The markdown styles live in md.js so every page renders documents alike.
+const sheet = document.createElement('style');
+sheet.textContent = MD_STYLES;
+document.head.append(sheet);
+
+const $ = (id) => document.getElementById(id);
+const fmtBytes = (n) =>
+  n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`;
+const stripName = (n) => n.replace(/-transcript\.\w+$/, '').replace(/\.\w+$/, '');
+
+const state = { files: [], roots: [], current: null, source: '', filter: '' };
+
+async function load() {
+  const d = await fetch('/api/files').then((r) => r.json());
+  state.files = d.files || [];
+  state.roots = d.roots || [];
+  $('count-chip').textContent = `${state.files.length} file${state.files.length === 1 ? '' : 's'}`;
+  renderList();
+}
+
+function renderList() {
+  const host = $('file-list');
+  const needle = state.filter.trim().toLowerCase();
+  const shown = needle
+    ? state.files.filter((f) => `${f.group}/${f.name}`.toLowerCase().includes(needle))
+    : state.files;
+
+  if (!shown.length) {
+    host.innerHTML = needle
+      ? `<div class="empty">Nothing matches “${escapeHtml(state.filter)}”.</div>`
+      : `<div class="empty">No files found. Searched:${state.roots.map((r) =>
+          `<div style="margin-top:8px;font-family:var(--mono);font-size:10.5px;color:${
+            r.exists ? 'var(--faint)' : 'var(--bad)'}">${escapeHtml(r.path)}<br>` +
+          `<span style="color:var(--faint)">${r.exists ? `${r.count} file(s)` : 'does not exist'}</span></div>`
+        ).join('')}<div style="margin-top:14px">Set <code>GONG_OUT_DIR</code> in gong.env.</div></div>`;
+    return;
+  }
+
+  const groups = new Map();
+  for (const f of shown) {
+    const key = `${f.root}\u001f${f.group}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(f);
+  }
+
+  host.innerHTML = [...groups.entries()].map(([key, list]) => {
+    const [root, group] = key.split('\u001f');
+    const isOut = root === 'documents';
+    return `<div class="fgroup">
+      <div class="h">
+        <span class="nm">${escapeHtml(group || '(root)')}</span>
+        <span class="tag ${isOut ? 'out' : ''}">${escapeHtml(root)}</span>
+      </div>
+      ${list.map((f) => `<button class="frow" type="button" data-path="${escapeHtml(f.path)}"
+            aria-current="${state.current === f.path}">
+          <span class="t" title="${escapeHtml(f.name)}">${escapeHtml(stripName(f.name))}</span>
+          <span class="s">${fmtBytes(f.size)}</span>
+        </button>`).join('')}
+    </div>`;
+  }).join('');
+
+  host.querySelectorAll('.frow').forEach((b) => {
+    b.onclick = () => show(b.dataset.path);
+  });
+}
+
+async function show(path) {
+  state.current = path;
+  renderList();
+
+  const body = $('doc-body');
+  body.innerHTML = '<div class="empty">Loading…</div>';
+
+  try {
+    const d = await fetch(`/api/file?path=${encodeURIComponent(path)}`).then((r) => r.json());
+
+    if (d.error) {
+      $('doc-name').textContent = 'Cannot preview';
+      $('doc-sub').textContent = '';
+      $('doc-copy').hidden = true;
+      body.innerHTML = `<div class="empty">${escapeHtml(d.error)}</div>`;
+      return;
+    }
+
+    $('doc-name').textContent = d.name;
+    $('doc-sub').textContent = `${fmtBytes(d.size)} · ${new Date(d.mtime).toLocaleString()}`;
+    state.source = d.content;
+
+    // .docx and friends are listed and openable but cannot be rendered here.
+    if (d.binary) {
+      $('doc-copy').hidden = true;
+      body.innerHTML = `<div class="empty binary">
+        <div>${escapeHtml(d.name)} is a binary document, so it cannot be rendered in the browser.</div>
+        <a href="/api/file?path=${encodeURIComponent(d.path)}&raw=1" download>Download it</a>
+      </div>`;
+      return;
+    }
+
+    const copy = $('doc-copy');
+    copy.hidden = false;
+    copy.innerHTML = COPY_ICON + 'Copy';
+    copy.classList.remove('done');
+
+    if (/\.md$/i.test(d.name) && looksLikeEmail(d.content)) {
+      // Email drafts show subject + body only; To/From/Cc/Attachment are
+      // routing metadata that gets re-entered in the mail client anyway.
+      const mail = parseEmail(d.content);
+      body.innerHTML =
+        (mail.subject
+          ? `<div class="subject"><div class="lbl">Subject</div><div class="val">${escapeHtml(mail.subject)}</div></div>`
+          : '') +
+        `<div class="md">${mdToHtml(mail.body)}</div>`;
+      copy.title = 'Copy the subject and body';
+      attachCopy(copy, () => mail.clipboard, () => body.querySelector('.md'));
+    } else if (/\.md$/i.test(d.name)) {
+      body.innerHTML = `<div class="md">${mdToHtml(d.content)}</div>`;
+      copy.title = 'Copy the whole file';
+      attachCopy(copy, () => state.source, () => body.querySelector('.md'));
+    } else {
+      body.innerHTML = `<div class="md"><pre><code>${escapeHtml(d.content)}</code></pre></div>`;
+      copy.title = 'Copy the whole file';
+      attachCopy(copy, () => state.source, () => body.querySelector('.md'));
+    }
+
+    body.scrollTop = 0;
+  } catch (err) {
+    body.innerHTML = `<div class="empty">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+$('search').oninput = (e) => { state.filter = e.target.value; renderList(); };
+
+$('splitter').addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  $('splitter').classList.add('dragging');
+  document.body.classList.add('resizing');
+  const move = (ev) => {
+    $('list').style.width = `${Math.min(Math.max(ev.clientX, 220), window.innerWidth - 340)}px`;
+  };
+  const up = () => {
+    $('splitter').classList.remove('dragging');
+    document.body.classList.remove('resizing');
+    removeEventListener('mousemove', move);
+    removeEventListener('mouseup', up);
+  };
+  addEventListener('mousemove', move);
+  addEventListener('mouseup', up);
+});
+
+await load();
+
+// Deep link: ?path=… opens a file directly, which is how the other pages
+// hand off to this one now that the sidebar is gone.
+const wanted = new URLSearchParams(location.search).get('path');
+if (wanted) await show(wanted);
+</script>
+</body>
+</html>

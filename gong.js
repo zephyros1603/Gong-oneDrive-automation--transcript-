@@ -120,6 +120,12 @@ export function loadConfig(overrides = {}) {
       pick('GONG_SORTED_DIR'),
       join(resolveDir(pick('GONG_OUT_DIR'), 'transcripts'), '..', 'sorted')
     ),
+    // Where generated documents (MOMs and the like) are written. Defaults
+    // beside the transcripts so an external GONG_OUT_DIR keeps them together.
+    docsDir: resolveDir(
+      pick('GONG_DOCS_DIR'),
+      join(resolveDir(pick('GONG_OUT_DIR'), 'transcripts'), '..', 'documents')
+    ),
     // Extra folders the preview sidebar should index, colon-separated.
     previewDirs: pick('GONG_PREVIEW_DIRS') || '',
     pageSize: Number(pick('GONG_PAGE_SIZE') || 100),
