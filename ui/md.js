@@ -164,6 +164,33 @@ export function parseEmail(text) {
   };
 }
 
+/**
+ * Pull the covering email out of a reply.
+ *
+ * The prompt asks for it between explicit markers, because a covering email
+ * is something you paste into a mail client — a .docx of it is a file nobody
+ * opens. Returns {email, rest} so the chat can show the prose and the email
+ * box separately.
+ */
+export const EMAIL_OPEN = '=== EMAIL ===';
+export const EMAIL_CLOSE = '=== END EMAIL ===';
+
+export function extractEmail(text) {
+  const src = String(text || '');
+  const open = src.indexOf(EMAIL_OPEN);
+  if (open === -1) return { email: null, rest: src };
+
+  const bodyStart = open + EMAIL_OPEN.length;
+  const close = src.indexOf(EMAIL_CLOSE, bodyStart);
+  const block = src.slice(bodyStart, close === -1 ? undefined : close).trim();
+
+  const rest = (
+    src.slice(0, open) + (close === -1 ? '' : src.slice(close + EMAIL_CLOSE.length))
+  ).trim();
+
+  return { email: parseEmail(block), rest };
+}
+
 // ---------------------------------------------------------------------------
 // clipboard
 // ---------------------------------------------------------------------------

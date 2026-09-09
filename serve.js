@@ -679,28 +679,48 @@ const server = createServer(async (req, res) => {
 
       try {
         const settings = readSettings();
-        const action = settings.actions.find((a) => a.id === body.actionId);
-        if (!action) throw new Error(`unknown action: ${body.actionId}`);
+
+        // The chat can send a skill, a free-text message, or both. An action
+        // id still works, so the skill picker and any saved buttons agree.
+        const action = body.actionId
+          ? settings.actions.find((a) => a.id === body.actionId)
+          : null;
+        if (body.actionId && !action) throw new Error(`unknown action: ${body.actionId}`);
+
+        const message = String(body.message || '').trim();
+        if (!action && !message) throw new Error('type something or pick a skill');
 
         const files = (body.files || []).filter((f) => library.isReadable(f));
-        if (!files.length) throw new Error('select at least one transcript');
+        // A follow-up in an existing conversation already has the transcripts
+        // in context, so files are only required when starting fresh.
+        if (!files.length && !body.sessionId) {
+          throw new Error('select at least one transcript');
+        }
 
         const outputDir = expandPath(body.outputDir || settings.outputDir, settings.outputDir);
         mkdirSync(outputDir, { recursive: true });
 
         const before = library.version('output');
-        stream.send({ type: 'start', action, files, outputDir });
+
+        // A skill plus a typed message means "run the skill, and here is the
+        // extra steer"; either alone works too.
+        const instruction = action
+          ? [action.instruction, message].filter(Boolean).join('. ')
+          : message;
+        const label = action ? action.label : 'Chat';
+
+        stream.send({ type: 'start', action, label, files, outputDir, message });
 
         await new Promise((finished) => {
           const started = runSkill({
-            skill: action.skill,
-            instruction: action.instruction,
+            skill: action ? action.skill : '',
+            instruction,
             outputDir,
             files,
             sessionId: body.sessionId || null,
             model: settings.model || '',
             maxTurns: Number(settings.maxTurns) || 0,
-            label: action.label,
+            label,
             cwd: HERE,
             addDirs: library.roots().map((r) => r.path),
             onEvent: (e) => {
@@ -710,8 +730,8 @@ const server = createServer(async (req, res) => {
                 reported = e;
                 rememberSession({
                   id: e.session,
-                  label: `${action.label} · ${new Date().toLocaleString()}`,
-                  actionId: action.id,
+                  label: `${label} · ${new Date().toLocaleString()}`,
+                  actionId: action?.id || '',
                 });
               }
 
@@ -719,8 +739,8 @@ const server = createServer(async (req, res) => {
                 // Whatever happened, the run is accounted for — a cancelled
                 // run still cost whatever it had already spent.
                 recordUsage({
-                  actionId: action.id,
-                  label: action.label,
+                  actionId: action?.id || 'chat',
+                  label,
                   costUsd: reported?.costUsd,
                   durationMs: reported?.durationMs,
                   turns: reported?.turns,

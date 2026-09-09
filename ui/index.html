@@ -760,7 +760,15 @@ async function boot() {
       { id: '3811476788007240356', name: 'Revenue Operations (restricted)' },
     ], cfg.GONG_WORKSPACE_ID);
 
+    orgState.src = cfg.GONG_OUT_DIR || '';
     orgState.out = cfg.GONG_SORTED_DIR || '';
+
+    // A page newer than the server shows up as missing config keys; say so
+    // rather than rendering "undefined" somewhere downstream.
+    if (cfg.GONG_SORTED_DIR === undefined) {
+      fail('This page is newer than the server — copy every project file, '
+        + 'then restart it. (gong.js is missing GONG_SORTED_DIR.)');
+    }
     mountOrganizer($('org-form'));
     mountOrganizer($('org-done'));
 
@@ -851,6 +859,11 @@ $('reveal').onclick = () => {
 };
 F.cookie.addEventListener('input', cookieMeta);
 [F.out, F.format].forEach((el) => el.addEventListener('input', outPreview));
+// Keep the organizer pointed at wherever the pull is writing.
+F.out.addEventListener('input', () => {
+  orgState.src = F.out.value.trim();
+  syncers.forEach((fn) => fn());
+});
 [F.format, F.dryRun, F.rangeMode, F.days, F.from, F.to, F.accountName]
   .forEach((el) => el.addEventListener('input', cmdPreview));
 
@@ -1258,7 +1271,10 @@ function finish(e) {
  * `orgState` keeps them in step: change the grouping on one and the other
  * already agrees.
  */
-const orgState = { by: 'customer', mode: 'copy', out: '' };
+// `src` matters: the pull form's output folder is per-run unless it is saved
+// back to gong.env, so an organizer that only ever used the configured folder
+// looked in the wrong place and reported nothing found.
+const orgState = { by: 'customer', mode: 'copy', src: '', out: '' };
 
 function mountOrganizer(container) {
   container.innerHTML = `
@@ -1279,6 +1295,11 @@ function mountOrganizer(container) {
         </select>
       </div>
       <div class="field wide">
+        <label>Source — the folder holding the transcripts</label>
+        <input type="text" data-org="src" class="mono" placeholder="transcripts">
+        <span class="note" data-org="srcnote"></span>
+      </div>
+      <div class="field wide">
         <label>Destination</label>
         <input type="text" data-org="out" class="mono" placeholder="sorted">
       </div>
@@ -1294,16 +1315,25 @@ function mountOrganizer(container) {
   const by = q('[data-org=by]');
   const mode = q('[data-org=mode]');
   const out = q('[data-org=out]');
+  const src = q('[data-org=src]');
 
   const sync = () => {
     by.value = orgState.by;
     mode.value = orgState.mode;
     out.value = orgState.out;
+    src.value = orgState.src;
+
+    // Say plainly when the organizer is not looking where the pull will write.
+    const pullTo = F.out.value.trim();
+    q('[data-org=srcnote]').textContent =
+      pullTo && orgState.src && pullTo !== orgState.src
+        ? `Differs from the pull output folder above (${pullTo})`
+        : 'Defaults to the pull output folder above.';
     const flag = { copy: '', link: ' --link', move: ' --move' }[orgState.mode];
     q('[data-org=cmd]').textContent = `node organize.js --by ${orgState.by}${flag}`;
   };
 
-  for (const [el, key] of [[by, 'by'], [mode, 'mode'], [out, 'out']]) {
+  for (const [el, key] of [[by, 'by'], [mode, 'mode'], [out, 'out'], [src, 'src']]) {
     el.addEventListener('input', () => {
       orgState[key] = el.value;
       organizers.forEach((c) => c !== container && syncers.get(c)());
@@ -1343,8 +1373,18 @@ async function runOrganize(container, dryRun) {
       return;
     }
     if (!d.total) {
-      panel.innerHTML = `<div class="org-head">No transcript files found in
-        <span class="path">${escapeHtml(d.src)}</span></div>`;
+      const where = d.src || orgState.src || '(no folder configured)';
+      const why = d.srcExists === false
+        ? 'that folder does not exist'
+        : 'the folder exists but holds no <code>*-transcript.*</code> files';
+      panel.innerHTML = `<div class="org-head">
+        <b>No transcripts found</b>
+        <span class="path">${escapeHtml(where)}</span>
+        <div style="margin-top:7px;color:var(--faint);font-size:11.5px;line-height:1.6">
+          ${why}. If you pulled into a different folder, set <b>Source</b> above
+          to match — the pull output folder is per-run unless you tick
+          <b>Save back to gong.env</b>.
+        </div></div>`;
       return;
     }
 

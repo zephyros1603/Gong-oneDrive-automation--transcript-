@@ -147,17 +147,45 @@ export function addSkill({ name, description, body }) {
  * followed by the selected files. Claude reads them itself via its own file
  * tools, so nothing is pasted into the prompt.
  */
+export const EMAIL_OPEN = '=== EMAIL ===';
+export const EMAIL_CLOSE = '=== END EMAIL ===';
+
 export function buildPrompt({ skill, instruction, outputDir, files }) {
   const lines = [
-    `${skill}, ${instruction}, and generated report in ${outputDir}`,
-    '',
-    files.length === 1 ? 'Transcript file:' : `Transcript files (${files.length}):`,
-    ...files.map((f) => `- ${f}`),
+    skill
+      ? `${skill}, ${instruction}, and generated report in ${outputDir}`
+      : instruction,
+  ];
+
+  if (files.length) {
+    lines.push(
+      '',
+      files.length === 1 ? 'Transcript file:' : `Transcript files (${files.length}):`,
+      ...files.map((f) => `- ${f}`)
+    );
+  }
+
+  lines.push(
     '',
     `Write every generated document into ${outputDir}.`,
     'Do not use /mnt/user-data or /mnt/skills paths — this is a local machine,',
     'so use the output directory above and local python for any .docx work.',
-  ];
+    '',
+    // A covering email is something you paste into a mail client, so a .docx
+    // of it is a file nobody opens. Ask for it inline, fenced by markers the
+    // UI can find, and render it as a copyable email box instead.
+    'Do NOT save the covering email as a file. If you write a covering email,',
+    'put it in your final reply between these exact markers:',
+    '',
+    EMAIL_OPEN,
+    'Subject: <subject line>',
+    '',
+    '<email body>',
+    EMAIL_CLOSE,
+    '',
+    'Only the call notes and reports become documents on disk.',
+  );
+
   return lines.join('\n');
 }
 
