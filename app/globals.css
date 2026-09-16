@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+/**
+ * The palette from the vanilla build, carried over unchanged. The tokens are
+ * declared as Tailwind v4 theme variables so `bg-surface` and `text-muted`
+ * work, and also kept as plain custom properties because the SVG scene on the
+ * Pull tab needs to read them from CSS.
+ *
+ * Dark is the base and light is the override, which is the way round the
+ * original was written — this app is looked at in a dark editor all day.
+ */
+@theme {
+  --color-bg: #0b0d12;
+  --color-surface: #12151d;
+  --color-surface-2: #171b25;
+  --color-surface-3: #1c2130;
+  --color-line: #252a38;
+  --color-line-soft: #1d222e;
+  --color-text: #e7eaf3;
+  --color-muted: #8f97ad;
+  --color-faint: #5f6779;
+  --color-accent: #7c6cf5;
+  --color-accent-2: #4dd6c1;
+  --color-ok: #48c78e;
+  --color-warn: #e9b949;
+  --color-bad: #ef5f6b;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+:root {
+  --bg: #0b0d12;
+  --surface: #12151d;
+  --surface-2: #171b25;
+  --surface-3: #1c2130;
+  --line: #252a38;
+  --line-soft: #1d222e;
+  --text: #e7eaf3;
+  --muted: #8f97ad;
+  --faint: #5f6779;
+  --accent: #7c6cf5;
+  --accent-2: #4dd6c1;
+  --accent-soft: #7c6cf522;
+  --ok: #48c78e;
+  --warn: #e9b949;
+  --bad: #ef5f6b;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #eef0f5; --surface: #fff; --surface-2: #f7f8fc; --surface-3: #eef0f7;
+    --line: #dfe2ec; --line-soft: #e9ecf3; --text: #1a1d27; --muted: #5f6779;
+    --faint: #8f97ad; --accent-soft: #7c6cf518;
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+
+  /* An app shell, not a document: the panes scroll, the page does not. The
+     cost is that anything wider than the window is clipped and unreachable
+     rather than scrolled to — which is exactly how the six-tab nav lost its
+     last tab — so the shell is pinned to the viewport width and everything
+     inside it has to cope. `min-width: 0` is the part that lets flex children
+     shrink below their content instead of pushing the page wider. */
+  overflow: hidden;
+  width: 100%;
+  max-width: 100vw;
+  min-width: 0;
+}
+
+/* Long unbroken strings — absolute paths, ids, URLs — are the usual cause of
+   a pane refusing to shrink. */
+.break-anywhere { overflow-wrap: anywhere; word-break: break-word; }
+button { font: inherit; cursor: pointer; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------------------------------------------------------------------------
+   Rendered markdown.
+   Ported from md.js's MD_STYLES, which each page used to inject at runtime.
+   --------------------------------------------------------------------------- */
+.md { font-size: 13px; line-height: 1.65; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md h1, .md h2, .md h3, .md h4 {
+  margin: 1.4em 0 .5em; font-weight: 640; line-height: 1.3;
+}
+.md h1 { font-size: 19px; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
+.md h2 { font-size: 16px; border-bottom: 1px solid var(--line-soft); padding-bottom: .25em; }
+.md h3 { font-size: 14px; }
+.md h4 { font-size: 13px; color: var(--muted); }
+.md p { margin: .7em 0; }
+.md ul, .md ol { margin: .7em 0; padding-left: 1.5em; }
+.md li { margin: .25em 0; }
+.md a { color: var(--accent); text-decoration: none; }
+.md a:hover { text-decoration: underline; }
+.md code {
+  font: 11.5px var(--mono); background: var(--surface-3);
+  padding: .15em .4em; border-radius: 4px;
+}
+.md pre {
+  background: var(--surface-3); border: 1px solid var(--line);
+  border-radius: 8px; padding: 11px 13px; overflow-x: auto; margin: .8em 0;
+}
+.md pre code { background: none; padding: 0; font-size: 11.5px; }
+.md blockquote {
+  margin: .8em 0; padding: .1em 0 .1em 13px;
+  border-left: 3px solid var(--line); color: var(--muted);
+}
+.md table { border-collapse: collapse; margin: .9em 0; font-size: 12.5px; width: 100%; }
+.md th, .md td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
+.md th { background: var(--surface-2); font-weight: 600; }
+.md hr { border: none; border-top: 1px solid var(--line); margin: 1.4em 0; }
+.md img { max-width: 100%; }
+
+/* Focus ring, once, rather than per-component. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The Pull progress scene.
+   Motion is gated by one `.running` class, so the component only toggles that.
+   --wire must match WIRE in components/PullScene.jsx.
+   --------------------------------------------------------------------------- */
+.pull-scene { --wire: 486px; display: grid; place-items: center; padding: 8px 0 4px; }
+.pull-scene .pulse { transform-origin: 150px 85px; }
+.pull-scene.running .pulse { animation: gong-breathe 2.8s ease-in-out infinite; }
+.pull-scene.running .flow  { animation: gong-flow 2.6s linear infinite; }
+.pull-scene.running .pkt   { animation: gong-fly 5.6s cubic-bezier(.4, 0, .6, 1) infinite; }
+
+@keyframes gong-breathe {
+  0%, 100% { opacity: .08; transform: scale(1); }
+  50%      { opacity: .18; transform: scale(1.06); }
+}
+@keyframes gong-flow { to { stroke-dashoffset: -24; } }
+@keyframes gong-fly {
+  0%   { opacity: 0;   transform: translateX(0); }
+  6%   { opacity: .95; }
+  88%  { opacity: .95; }
+  100% { opacity: 0;   transform: translateX(var(--wire)); }
+}
+
+@keyframes gong-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.stage-in { animation: gong-fade .25s ease; }

@@ -1,6 +1,7 @@
 gong.env
 gong.env.bak
 settings.json
+projects.json
 raw/
 transcripts/
 sorted/
@@ -9,3 +10,16 @@ logs/
 .server.pid
 node_modules/
 ui/_probe.html
+
+# Next.js
+.next/
+next-env.d.ts
+
+# SQLite — the whole application state lives here
+data.db
+data.db-shm
+data.db-wal
+
+# Superseded JSON stores, kept by the migration rather than deleted
+projects.json.migrated
+settings.json.migrated

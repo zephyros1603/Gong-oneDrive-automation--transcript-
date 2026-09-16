@@ -3,7 +3,27 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "ui": "node serve.js",
+    "dev": "next dev -H 127.0.0.1 -p 7878",
+    "build": "next build",
+    "start": "next start -H 127.0.0.1 -p 7878",
+    "migrate": "node core/db/migrate.js",
     "pull": "node gong.js me --days 7"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
+    "next": "^15.5.25",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.20.3",
+    "@types/react": "^19.3.0",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3"
   }
 }

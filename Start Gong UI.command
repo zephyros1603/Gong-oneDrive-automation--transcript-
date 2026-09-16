@@ -10,6 +10,7 @@ cd "$(dirname "$0")" || exit 1
 PORT="${GONG_UI_PORT:-7878}"
 PIDFILE=".server.pid"
 LOG="logs/server.log"
+NEXT="node_modules/.bin/next"
 
 # Finder launches this with a bare PATH, so nvm is not set up. Find node the
 # same way gong.env does, then fall back to common install locations.
@@ -38,6 +39,27 @@ if [[ -z "$NODE" ]]; then
 fi
 echo "  node     $("$NODE" --version) at $NODE"
 
+# The app is a Next.js server now, so it needs its dependencies installed and
+# a production build present. Both are one-off, but a fresh clone has neither.
+if [[ ! -d node_modules ]]; then
+  echo "  setup    installing dependencies (one-off, a few minutes)…"
+  if ! "$NODE" "$(dirname "$NODE")/npm" install >> "$LOG" 2>&1; then
+    echo "  ✕ npm install failed. Last lines of the log:"
+    tail -15 "$LOG" | sed 's/^/    /'
+    pause; exit 1
+  fi
+fi
+
+if [[ ! -d .next ]]; then
+  echo "  setup    building the app (one-off, about a minute)…"
+  mkdir -p logs
+  if ! "$NODE" "$NEXT" build >> "$LOG" 2>&1; then
+    echo "  ✕ The build failed. Last lines of the log:"
+    tail -20 "$LOG" | sed 's/^/    /'
+    pause; exit 1
+  fi
+fi
+
 # Already running? Reuse it rather than starting a second one on a busy port.
 if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
   echo "  status   already running (pid $(cat "$PIDFILE"))"
@@ -56,7 +78,9 @@ fi
 
 mkdir -p logs
 # nohup + setsid-style detach so closing the Terminal window leaves it running.
-nohup "$NODE" serve.js --port "$PORT" >> "$LOG" 2>&1 &
+# -H 127.0.0.1 is load-bearing: next start binds 0.0.0.0 by default, and the
+# loopback bind *is* this app's entire authorization model. There is no auth.
+nohup "$NODE" "$NEXT" start -H 127.0.0.1 -p "$PORT" >> "$LOG" 2>&1 &
 echo $! > "$PIDFILE"
 
 # Wait for it to actually accept connections before opening the browser.

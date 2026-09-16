@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automation · Gong Transcripts</title>
+<link rel="stylesheet" href="shell.css">
+<style>
+  #body { flex: 1; min-height: 0; overflow: auto; padding: 26px 24px 60px; }
+  .wrap { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 20px 22px;
+  }
+  .card > h2 {
+    margin: 0 0 4px; font: 600 12px/1.4 var(--sans); letter-spacing: .1em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .card > .hint { margin: 0 0 18px; color: var(--faint); font-size: 12.5px; line-height: 1.6; }
+
+  .grid { display: grid; gap: 14px 16px; grid-template-columns: repeat(3, 1fr); }
+  .grid .wide { grid-column: 1 / -1; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+
+  /* the on/off switch */
+  .toggle { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; }
+  .toggle input {
+    appearance: none; margin: 1px 0 0; width: 38px; height: 22px; flex: none;
+    background: var(--line); border-radius: 22px; position: relative; cursor: pointer;
+    transition: background .18s; border: none;
+  }
+  .toggle input::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+    background: #fff; border-radius: 50%; transition: transform .18s;
+  }
+  .toggle input:checked { background: var(--accent); }
+  .toggle input:checked::after { transform: translateX(16px); }
+  .toggle .t { font-size: 13px; }
+  .toggle .t small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 3px; line-height: 1.55; }
+
+  .days { display: flex; gap: 5px; flex-wrap: wrap; }
+  .days button {
+    width: 38px; height: 32px; border-radius: 8px; font-size: 11.5px; font-weight: 560;
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--muted);
+  }
+  .days button[aria-pressed="true"] { background: var(--accent); border-color: transparent; color: #fff; }
+
+  .state {
+    display: flex; gap: 1px; background: var(--line-soft);
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  }
+  .state > div { flex: 1; padding: 13px 15px; background: var(--surface); }
+  .state b { display: block; font: 600 14px/1.4 var(--sans); }
+  .state span { font: 10.5px/1.5 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
+  .state b.on { color: var(--ok); }
+  .state b.off { color: var(--faint); }
+  .state b.warn { color: var(--warn); }
+
+  .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  .primary {
+    background: linear-gradient(135deg, var(--accent), #6a5ae0); border: none; color: #fff;
+    border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 560;
+  }
+  .primary:disabled { opacity: .45; cursor: not-allowed; }
+
+  /* live pipeline */
+  .steps { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .step {
+    display: flex; align-items: center; gap: 7px; font-size: 11.5px;
+    padding: 6px 11px; border-radius: 20px; border: 1px solid var(--line); color: var(--faint);
+  }
+  .step .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--line); flex: none; }
+  .step.on { color: var(--text); border-color: var(--accent); background: var(--accent-soft); }
+  .step.on .dot { background: var(--accent); animation: throb 1.1s ease-in-out infinite; }
+  .step.done { color: var(--muted); }
+  .step.done .dot { background: var(--ok); }
+
+  .log {
+    font: 11.5px/1.75 var(--mono); color: var(--muted);
+    background: var(--surface-2); border: 1px solid var(--line-soft);
+    border-radius: 9px; padding: 11px 13px; max-height: 280px; overflow: auto;
+  }
+  .log .err { color: var(--bad); }
+  .log .ok { color: var(--accent-2); }
+  .log .step-line { color: var(--text); margin-top: 6px; }
+
+  .hrow {
+    display: flex; align-items: baseline; gap: 10px; padding: 9px 12px;
+    border-bottom: 1px solid var(--line-soft); font-size: 12px;
+  }
+  .hrow:last-child { border-bottom: none; }
+  .hrow .k {
+    flex: none; font: 600 9.5px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 6px; border-radius: 4px;
+  }
+  .hrow .k.ok { color: var(--ok); background: #48c78e1a; }
+  .hrow .k.error { color: var(--bad); background: #ef5f6b1a; }
+  .hrow .k.skipped { color: var(--warn); background: #e9b9491a; }
+  .hrow .d { flex: 1; min-width: 0; color: var(--muted); font-size: 11.5px; }
+  .hrow .w { flex: none; font: 10.5px/1 var(--mono); color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar" id="topbar"></div>
+  <div id="body">
+    <div class="wrap">
+
+      <div class="card">
+        <h2>Schedule</h2>
+        <p class="hint">
+          The timer runs <b>inside this server</b>, not in launchd. It therefore cannot
+          wake your Mac, and while the Mac is asleep the slot simply passes — nothing
+          is queued up to fire on wake. If you are away past the grace window, the day
+          is recorded as missed and it waits for the next one.
+        </p>
+
+        <div class="state" id="state"></div>
+
+        <div style="margin:18px 0">
+          <label class="toggle">
+            <input type="checkbox" id="enabled">
+            <span class="t">Run automatically
+              <small>Needs this server to be running. Nothing is scheduled with the operating
+              system, so your Mac is never woken.</small></span>
+          </label>
+        </div>
+
+        <div class="grid">
+          <div class="field">
+            <label for="time">Time</label>
+            <input type="time" id="time" class="mono">
+          </div>
+          <div class="field">
+            <label for="daysBack">Pull the last</label>
+            <input type="number" id="daysBack" class="mono" min="1" max="30">
+            <span class="note">days of your calls</span>
+          </div>
+          <div class="field">
+            <label for="grace">Grace window</label>
+            <input type="number" id="grace" class="mono" min="5" max="240">
+            <span class="note">minutes late it may still run</span>
+          </div>
+
+          <div class="field wide">
+            <label>Days</label>
+            <div class="days" id="days"></div>
+          </div>
+
+          <div class="field">
+            <label for="organizeBy">Group by</label>
+            <select id="organizeBy" class="mono">
+              <option value="customer">Customer</option>
+              <option value="call">Call</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="organizeMode">How</label>
+            <select id="organizeMode" class="mono">
+              <option value="copy">Copy</option>
+              <option value="link">Hardlink</option>
+              <option value="move">Move</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="toggle" style="margin-top:22px">
+              <input type="checkbox" id="organize">
+              <span class="t">Organize<small>Group before feeding projects</small></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="save" type="button">Save schedule</button>
+          <button class="icon-btn" id="run-now" type="button">Run now</button>
+          <span class="note" id="save-note" style="color:var(--faint);font-size:11.5px"></span>
+        </div>
+      </div>
+
+      <div class="card" id="live-card" hidden>
+        <h2>Pipeline</h2>
+        <p class="hint" id="live-sub">Running…</p>
+        <div class="steps" id="steps">
+          <div class="step" data-step="pull"><i class="dot"></i>Pull from Gong</div>
+          <div class="step" data-step="organize"><i class="dot"></i>Organize</div>
+          <div class="step" data-step="projects"><i class="dot"></i>Feed projects</div>
+        </div>
+        <div class="log" id="log"></div>
+      </div>
+
+      <div class="card">
+        <h2>History</h2>
+        <p class="hint">The last runs, including days that were skipped because the Mac was asleep.</p>
+        <div id="history"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { mountTopbar, esc } from './shell.js';
+
+const $ = (id) => document.getElementById(id);
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const state = { cfg: null, days: new Set(), run: null };
+
+async function load() {
+  const d = await fetch('/api/automation').then((r) => r.json());
+  state.cfg = d;
+  state.days = new Set(d.days || []);
+
+  $('enabled').checked = d.enabled;
+  $('time').value = d.time;
+  $('daysBack').value = d.daysBack;
+  $('grace').value = d.graceMinutes;
+  $('organize').checked = d.organize;
+  $('organizeBy').value = d.organizeBy;
+  $('organizeMode').value = d.organizeMode;
+
+  renderDays();
+  renderState(d);
+  renderHistory(d);
+
+  // A run already in flight (or one started from another tab) is picked up.
+  if (d.active?.length) attach(d.active[0].id);
+  else if (d.recent?.length && d.recent[0].status === 'running') attach(d.recent[0].id);
+}
+
+function renderDays() {
+  $('days').innerHTML = DAY_NAMES.map((n, i) =>
+    `<button type="button" data-day="${i}" aria-pressed="${state.days.has(i)}">${n}</button>`).join('');
+  $('days').querySelectorAll('[data-day]').forEach((b) => {
+    b.onclick = () => {
+      const i = Number(b.dataset.day);
+      state.days.has(i) ? state.days.delete(i) : state.days.add(i);
+      renderDays();
+    };
+  });
+}
+
+function renderState(d) {
+  const next = d.nextRunAt ? new Date(d.nextRunAt) : null;
+  const last = d.lastRunAt ? new Date(d.lastRunAt) : null;
+
+  $('state').innerHTML = `
+    <div><b class="${d.enabled ? 'on' : 'off'}">${d.enabled ? 'On' : 'Off'}</b><span>schedule</span></div>
+    <div><b>${next ? next.toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</b><span>next run</span></div>
+    <div><b>${last ? last.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'never'}</b><span>last run</span></div>
+    <div><b class="${d.missed ? 'warn' : ''}">${d.missed ? `missed by ${d.lateMinutes}m` : d.dueNow ? 'due now' : 'idle'}</b><span>today</span></div>`;
+}
+
+function renderHistory(d) {
+  const rows = d.history || [];
+  $('history').innerHTML = rows.length
+    ? rows.map((h) => `<div class="hrow">
+        <span class="k ${esc(h.kind)}">${esc(h.kind)}</span>
+        <span class="d">${esc(
+          h.kind === 'skipped'
+            ? h.reason
+            : `${h.pulled || 0} pulled · ${h.organized || 0} organized · ${h.projects || 0} project(s) updated`
+              + (h.errors?.length ? ` · ${h.errors.join('; ')}` : '')
+        )}</span>
+        <span class="w">${new Date(h.at).toLocaleString()}</span>
+      </div>`).join('')
+    : '<div class="empty">Nothing has run yet.</div>';
+}
+
+/* ---------------- live pipeline ---------------- */
+function attach(runId) {
+  state.run = runId;
+  $('live-card').hidden = false;
+  $('run-now').disabled = true;
+  $('log').innerHTML = '';
+  for (const s of $('steps').children) s.className = 'step';
+
+  const line = (text, cls = '') => {
+    const el = document.createElement('div');
+    if (cls) el.className = cls;
+    el.textContent = text;
+    $('log').append(el);
+    $('log').scrollTop = $('log').scrollHeight;
+  };
+
+  const setStep = (name) => {
+    let hit = false;
+    for (const s of $('steps').children) {
+      if (s.dataset.step === name) { hit = true; s.className = 'step on'; }
+      else s.className = hit ? 'step' : 'step done';
+    }
+  };
+
+  (async () => {
+    try {
+      const res = await fetch(`/api/runs/${runId}/stream`);
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+
+        let i;
+        while ((i = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          const l = frame.split('\n').find((x) => x.startsWith('data:'));
+          if (!l) continue;
+          const ev = JSON.parse(l.slice(5).trim());
+
+          if (ev.type === 'step') { setStep(ev.step); line(ev.message, 'step-line'); }
+          else if (ev.type === 'detail') line(`  ${ev.message}`);
+          else if (ev.type === 'file') line(`  + ${ev.name || ''}`, 'ok');
+          else if (ev.type === 'error') line(`  ${ev.message}`, 'err');
+          else if (ev.type === 'summary') {
+            const r = ev.result;
+            line('');
+            line(`done — ${r.pulled} pulled, ${r.organized} organized, `
+              + `${r.projects?.updated?.length || 0} project(s) updated`, 'ok');
+          }
+        }
+      }
+    } catch (err) {
+      line(err.message, 'err');
+    }
+
+    for (const s of $('steps').children) s.className = 'step done';
+    $('live-sub').textContent = 'Finished.';
+    $('run-now').disabled = false;
+    state.run = null;
+    await load();
+  })();
+}
+
+/* ---------------- actions ---------------- */
+$('save').onclick = async () => {
+  const b = $('save');
+  b.disabled = true; b.textContent = 'Saving…';
+  await fetch('/api/automation', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      enabled: $('enabled').checked,
+      time: $('time').value || '09:00',
+      days: [...state.days].sort(),
+      daysBack: Number($('daysBack').value) || 2,
+      graceMinutes: Number($('grace').value) || 20,
+      organize: $('organize').checked,
+      organizeBy: $('organizeBy').value,
+      organizeMode: $('organizeMode').value,
+    }),
+  });
+  await load();
+  b.disabled = false; b.textContent = 'Save schedule';
+  $('save-note').textContent = 'Saved.';
+  setTimeout(() => { $('save-note').textContent = ''; }, 2500);
+};
+
+$('run-now').onclick = async () => {
+  $('run-now').disabled = true;
+  $('live-sub').textContent = 'Running…';
+  const r = await fetch('/api/automation/run', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  }).then((x) => x.json());
+  attach(r.id);
+};
+
+await mountTopbar($('topbar'), 'automation');
+await load();
+
+// Keep the state card honest while sitting on this page.
+setInterval(async () => { if (!state.run) await load(); }, 15000);
+</script>
+</body>
+</html>

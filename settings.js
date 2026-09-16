@@ -1,19 +1,25 @@
 /**
- * settings.js — Workbench state persisted as one JSON file.
+ * settings.js — Workbench state, in the database.
  *
  * gong.env stays the place for credentials and folder locations; this holds
  * the UI's own state (which skill each button calls, the output directory,
  * the last selection) so it survives a restart.
+ *
+ * The document lives in one settings row because nothing queries inside it.
+ * Usage is the exception: it is an append-only log that is only ever summed,
+ * so it gets a real table and the totals become a query rather than a number
+ * recomputed from a 200-entry JSON array on every page poll.
  */
 
-import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
-import { dirname, join, resolve, isAbsolute } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
+import { eq, desc, gte, sql } from 'drizzle-orm';
 import { loadConfig } from './gong.js';
+import { db } from './core/db/client.js';
+import { settings as settingsTable, usage as usageTable, toMicros, fromMicros } from './core/db/schema.js';
+import { PROJECT_ROOT } from './core/paths.js';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-export const SETTINGS_PATH = join(HERE, 'settings.json');
+const KEY = 'app';
 
 /**
  * The four reporting artefacts, wired to the skills that produce them.
@@ -61,13 +67,12 @@ export const DEFAULT_ACTIONS = [
 function defaults() {
   const cfg = loadConfig();
   return {
-    version: 1,
+    version: 2,
     outputDir: cfg.docsDir,
     model: '',                 // '' = whatever Claude Code defaults to
     actions: DEFAULT_ACTIONS,
     selection: [],             // last-checked file paths
     sessions: [],              // { id, label, actionId, startedAt }
-    usage: [],                 // { at, actionId, costUsd, durationMs, turns }
     // Hard ceiling on agent turns per run, so a confused run cannot bill
     // without bound. A MOM takes ~12 turns.
     maxTurns: 40,
@@ -80,23 +85,23 @@ export function expandPath(raw, fallback) {
   if (value.startsWith('~')) {
     return join(homedir(), value.slice(1).replace(/^\/+/, ''));
   }
-  return isAbsolute(value) ? value : resolve(HERE, value);
+  return isAbsolute(value) ? value : resolve(PROJECT_ROOT, value);
 }
 
 export function readSettings() {
   const base = defaults();
-  if (!existsSync(SETTINGS_PATH)) return base;
+  const row = db.select().from(settingsTable).where(eq(settingsTable.key, KEY)).get();
 
   let stored = {};
   try {
-    stored = JSON.parse(readFileSync(SETTINGS_PATH, 'utf8'));
+    stored = row ? JSON.parse(row.value) : {};
   } catch {
-    // A corrupt file should not brick the UI; fall back to defaults.
-    return base;
+    // A corrupt value should not brick the UI; fall back to defaults.
+    return { ...base, usage: [] };
   }
 
-  // Merge rather than replace, so a settings file written by an older version
-  // still gains any newly added defaults.
+  // Merge rather than replace, so state written by an older version still
+  // gains any newly added defaults.
   const actions = Array.isArray(stored.actions) && stored.actions.length
     ? stored.actions
     : base.actions;
@@ -106,25 +111,30 @@ export function readSettings() {
     ...stored,
     outputDir: expandPath(stored.outputDir, base.outputDir),
     actions,
+    // Kept on the settings object for callers that still read it as a list.
+    usage: recentUsage(200),
   };
 }
 
 export function writeSettings(patch) {
-  const next = { ...readSettings(), ...patch };
-  next.version = 1;
+  const current = readSettings();
+  const next = { ...current, ...patch };
+
   if (patch.outputDir !== undefined) {
     next.outputDir = expandPath(patch.outputDir, defaults().outputDir);
   }
+  next.version = 2;
 
-  // Write via a temp file so an interrupted write cannot leave invalid JSON.
-  const tmp = `${SETTINGS_PATH}.tmp`;
-  writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
-  renameSync(tmp, SETTINGS_PATH);
+  // Usage is a table, not a field — never let it round-trip through here.
+  const { usage, ...persisted } = next;
+
+  db.insert(settingsTable)
+    .values({ key: KEY, value: JSON.stringify(persisted) })
+    .onConflictDoUpdate({ target: settingsTable.key, set: { value: JSON.stringify(persisted) } })
+    .run();
 
   return next;
 }
-
-const USAGE_KEEP = 200;
 
 /**
  * Append one run to the usage log.
@@ -134,41 +144,64 @@ const USAGE_KEEP = 200;
  * than being dropped — a run that cost money must not vanish from the total.
  */
 export function recordUsage({ actionId, label, costUsd, durationMs, turns, files, cancelled }) {
-  const s = readSettings();
-  const usage = [
-    {
-      at: Date.now(),
-      actionId: actionId || '',
-      label: label || '',
-      costUsd: Number(costUsd) || 0,
-      durationMs: Number(durationMs) || 0,
-      turns: Number(turns) || 0,
-      files: Number(files) || 0,
-      cancelled: Boolean(cancelled),
-    },
-    ...(s.usage || []),
-  ].slice(0, USAGE_KEEP);
+  db.insert(usageTable).values({
+    at: Date.now(),
+    actionId: actionId || '',
+    label: label || '',
+    costUsd: toMicros(Number(costUsd) || 0),
+    durationMs: Number(durationMs) || 0,
+    turns: Number(turns) || 0,
+    files: Number(files) || 0,
+    cancelled: Boolean(cancelled),
+  }).run();
 
-  return writeSettings({ usage });
+  return readSettings();
+}
+
+function row2usage(r) {
+  return {
+    at: r.at,
+    actionId: r.actionId || '',
+    label: r.label || '',
+    costUsd: fromMicros(r.costUsd) || 0,
+    durationMs: r.durationMs || 0,
+    turns: r.turns || 0,
+    files: r.files || 0,
+    cancelled: Boolean(r.cancelled),
+  };
+}
+
+function recentUsage(n) {
+  return db.select().from(usageTable)
+    .orderBy(desc(usageTable.at)).limit(n).all().map(row2usage);
 }
 
 /** Totals for the usage panel. */
 export function usageSummary() {
-  const runs = readSettings().usage || [];
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
-  const sum = (list) => list.reduce((n, r) => n + (r.costUsd || 0), 0);
-  const today = runs.filter((r) => r.at >= startOfDay.getTime());
+  const all = db.select({
+    total: sql`COALESCE(SUM(cost_usd), 0)`,
+    n: sql`COUNT(*)`,
+    cancelled: sql`COALESCE(SUM(cancelled), 0)`,
+  }).from(usageTable).get();
+
+  const today = db.select({
+    total: sql`COALESCE(SUM(cost_usd), 0)`,
+    n: sql`COUNT(*)`,
+  }).from(usageTable).where(gte(usageTable.at, startOfDay.getTime())).get();
+
+  const recent = recentUsage(12);
 
   return {
-    totalUsd: sum(runs),
-    todayUsd: sum(today),
-    runs: runs.length,
-    runsToday: today.length,
-    cancelled: runs.filter((r) => r.cancelled).length,
-    last: runs[0] || null,
-    recent: runs.slice(0, 12),
+    totalUsd: fromMicros(Number(all?.total ?? 0)) || 0,
+    todayUsd: fromMicros(Number(today?.total ?? 0)) || 0,
+    runs: Number(all?.n ?? 0),
+    runsToday: Number(today?.n ?? 0),
+    cancelled: Number(all?.cancelled ?? 0),
+    last: recent[0] || null,
+    recent,
   };
 }
 

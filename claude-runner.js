@@ -404,7 +404,10 @@ export function runSkill({
 }) {
   const bin = claudeBin();
   if (!bin) throw new Error('the Claude Code CLI was not found — set CLAUDE_BIN');
-  if (!files?.length) throw new Error('select at least one file first');
+
+  // Files are optional: a plain question is a valid turn, and a follow-up in
+  // an existing session already has its transcripts in context.
+  files = files || [];
 
   const prompt = buildPrompt({ skill, instruction, outputDir, files });
   const session = sessionId || randomUUID();

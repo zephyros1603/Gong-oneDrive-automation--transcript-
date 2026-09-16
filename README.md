@@ -9,7 +9,9 @@ transcripts/Sep-3/Aquera-Pennrose-implementation-calls-transcript.md
 transcripts/Sep-2/Aquera-Bluprintx-Implemetnation-call-transcript.md
 ```
 
-Everything is one Node script, `gong.js` — no dependencies beyond Node 20+.
+The Gong layer is still one dependency-free Node module, `gong.js`, usable on
+its own from the command line. Around it is a Next.js app — five working tabs
+plus a placeholder — backed by SQLite.
 
 ## Setup
 
@@ -20,7 +22,7 @@ lift the `Cookie:` header out of it.
 | Key | Meaning |
 |---|---|
 | `GONG_HOST` | `us-81357.app.gong.io` |
-| `GONG_COOKIE` | Session cookie. Expires in hours — see *Caveats* |
+| `GONG_COOKIE` | Session cookie, roughly 16 days — see *Caveats* |
 | `GONG_WORKSPACE_ID` | Blank auto-detects. Not global — you have two (below) |
 | `GONG_USER_ID` | Blank reads it from the CSRF token |
 | `GONG_ACCOUNT_ID` | Gong **account** id, for `gong-calls.sh` |
@@ -88,9 +90,34 @@ the title and date out of the transcript payload itself.
 ## Web UI
 
 ```bash
-node serve.js            # http://127.0.0.1:7878
-node serve.js --port 9000
+npm install        # once
+npm run build      # once, and after any change
+npm start          # http://127.0.0.1:7878
+npm run dev        # or, with hot reload
 ```
+
+Or double-click **Start Gong UI.command**, which does all three.
+
+**`-H 127.0.0.1` is not optional.** `next start` binds `0.0.0.0` by default,
+and the loopback bind *is* this app's entire authorization model — there is no
+authentication of any kind. It reads your filesystem and holds your Gong
+session. The npm scripts and the launcher both pin the host; anything that
+starts the server another way must too.
+
+Six tabs across the top:
+
+| Tab | Does |
+|---|---|
+| **Pull** | The form below: fetch transcripts out of Gong |
+| **Workbench** | Turn transcripts into documents with Claude Code |
+| **Projects** | A persistent chat per customer |
+| **Preview** | The rendered-markdown sidebar |
+| **Automation** | Pull → organize → projects, on a schedule |
+| **Provisioning** | Empty placeholder — monitored provisioning, still to be specified |
+
+The top bar is shared by all five, so the global **Stop**, the usage total and
+the automation status are always visible — a run you started on one tab is
+never hidden because you walked away from it.
 
 **Test connection** probes the session in the order things actually fail —
 cookie shape, then auth, then workspace listing, then a real filtered search —
@@ -125,6 +152,105 @@ cookie. A browser can do none of those from a `file://` page or a hosted
 origin — CORS blocks the API and there is no filesystem access. So the browser
 only renders; `serve.js` does the work, binds to `127.0.0.1` only, and serves
 files exclusively out of `ui/`. The cookie never leaves your machine.
+
+## Architecture
+
+Next.js App Router, React 19, SQLite via Drizzle. Three rules hold it together.
+
+**One long-lived Node process, never serverless.** This app spawns `claude`
+children that outlive the request that started them, keeps live cancel
+closures in memory, and runs a wall-clock scheduler. Vercel and every other
+serverless host would break all three. `next start` on a persistent machine is
+the only supported way to run it.
+
+**Nothing decides anything in a route handler.** `app/api/**/route.js` parses,
+calls a `core/` function, and serialises. The work — the Gong pull, the
+connection probe, a chat turn, the pipeline — lives in modules that take a
+plain options object and an `onEvent` callback, so the same code runs from a
+route, the scheduler, or a CLI. Before the migration ~500 lines of this was
+trapped inside `serve.js` and reachable no other way.
+
+**Process-bound state is pinned to `globalThis`.** Next re-evaluates modules on
+every edit in dev. A run registry or a child-process map held in a module
+binding would be wiped mid-run, orphaning a `claude` process that bills on in
+the background. `instrumentation.js` is the one place the scheduler and the
+shutdown hooks are installed, guarded by the same flag.
+
+### Fitting the window
+
+The shell is `overflow: hidden` — the panes scroll, the page does not. That is
+the right model for an app, and it has one sharp edge: anything wider than the
+window is *clipped and unreachable* rather than scrolled to. A six-tab nav and
+a fixed-width sidebar did exactly that; below about 700px the Provisioning tab
+was simply gone, and browser zoom produces the same effect on a large monitor,
+because zoom is only a narrower viewport measured in CSS pixels.
+
+`lib/useResponsive.js` is where those decisions are made rather than guessed:
+
+| Export | Does |
+|---|---|
+| `useMediaQuery` | One query, via `useSyncExternalStore` so nothing is missed between render and effect |
+| `useBreakpoint` | `isPhone` / `isCompact` / `isDesktop`, plus a live width |
+| `useResizablePanel` | A drag handle whose width is re-clamped when the *window* resizes, not only while dragging |
+| `useDismissable` | Escape closes the thing |
+
+Below `lg` the sidebar stops being a column and becomes an overlay, and the nav
+becomes a menu. `components/SidebarLayout.jsx` owns that switch for all three
+sidebar pages, so they cannot drift apart again.
+
+Two rules `useResizablePanel` enforces that the hand-rolled splitters did not:
+the width is re-clamped on window resize, so a 480px sidebar chosen on a large
+monitor cannot survive into a 600px window; and the clamp reserves room for the
+main pane, so widening the sidebar can never squeeze the content to nothing.
+
+Verified by rendering the real pages inside fixed-width iframes at 360, 390 and
+420px — headless Chrome refuses to open a window narrower than 500px, so a
+`--window-size=390` screenshot is a 500px render cropped to 390, which looks
+exactly like a layout bug and is not one.
+
+
+### What persists
+
+`data.db`, a single SQLite file. `gong.env` stays a file: the CLI reads it with
+no server running, the Chrome extension writes to it, and it is the one thing
+that must be `chmod 600` — credentials do not move into the database.
+
+| Table | Holds |
+|---|---|
+| `projects`, `project_transcripts`, `messages` | Customers, their files, their chats |
+| `runs`, `run_events` | Every event of every run, so replay survives a restart |
+| `settings` | The Workbench document — one row, nothing queries inside it |
+| `usage` | One row per run; the total is a `SUM`, not a recomputed array |
+| `automation_history` | Outcomes, including the days that were skipped |
+
+Transcripts are rows rather than a JSON array on the project, so the organizer
+adding one file does not rewrite the project. That whole-document rewrite is
+what made the previous JSON store lose concurrent updates silently.
+
+Money is stored as integer micro-dollars. A run costs `$0.096229` — six
+significant decimals — and the usage table is only ever summed, which is
+exactly where accumulated float error starts to show.
+
+`npm run migrate` imports `projects.json` and `settings.json` into SQLite and
+renames the originals `.migrated`. It is idempotent, and it never deletes.
+
+### Following a run
+
+`POST /api/runs` starts one and returns an id; `GET /api/runs/:id/stream`
+follows it. They are separate requests on purpose — that is what lets a page
+attach, leave, and re-attach.
+
+Detaching does **not** cancel. Closing the tab used to kill the run, which is
+why work vanished on a tab switch; now the server records every event and
+replays it to whoever attaches, including after a restart. The trade-off is
+real and deliberate: a run you walk away from keeps going and keeps costing.
+Every run stays visible and stoppable from the top bar, which is what makes
+that acceptable.
+
+`lib/useRunStream.js` is the only client that knows how to read the stream. The
+vanilla build had four hand-rolled copies of that loop, each handling a
+slightly different subset of the events and none handling `finished`.
+
 
 ## Starting it (no terminal needed)
 
@@ -274,6 +400,161 @@ inside the source are skipped, so a second run does not sort its own output.
 Copy is the default because it cannot lose anything. `--link` is the efficient
 choice once you trust it: one set of bytes, two paths.
 
+## Generating documents (Workbench)
+
+The **Workbench** tab turns transcripts into documents by driving the Claude
+Code CLI locally — no API key. `claude -p` runs headless against your existing
+subscription, so the only cost is what the subscription already covers.
+
+Pick transcripts on the **Input** side, choose an action, and the **Output**
+side fills in as the run streams. Input and Output are one segmented switch
+rather than two panes, because on a laptop two half-width panes gave neither
+enough room.
+
+| Action | Produces | Skill |
+|---|---|---|
+| **MOM** | Minutes of meeting + covering email | `aquera-status-reporting` |
+| **WSR** | Weekly project status report | `aquera-status-reporting` |
+| **MSR** | Monthly project status report | `aquera-status-reporting` |
+| **RunBook** | Project runbook | `aquera-project-runbook` — not installed, shows as a blueprint |
+
+Below the actions is a chat box: ask anything, with or without a skill. The
+`+` button attaches a skill as a removable pill; attaching files starts a fresh
+session deliberately, since replaying a long transcript into an existing
+context burns tokens for nothing.
+
+The CLI is invoked as:
+
+```
+claude -p <prompt> --output-format stream-json --verbose \
+  --append-system-prompt … --add-dir <each source dir> \
+  --allowed-tools Read,Glob,Grep,Write,Edit,Bash \
+  --permission-mode acceptEdits [--max-turns N] \
+  --session-id <new> | --resume <existing>
+```
+
+`--add-dir` is what lets Claude read transcripts that live outside this
+folder. `acceptEdits` is safe here because the allowed tools and the added
+directories are both fixed by the server, not by the model.
+
+**Maximum turns** caps one run. A MOM typically takes 11–13 turns and costs
+roughly $0.60–0.80; the floor for a trivial question is $0.02–0.08. Leave it at
+0 for no cap, or set it as a circuit-breaker on a run that might loop.
+
+### Covering emails are not files
+
+A MOM used to write its email out as a second `.md`, which meant opening a
+file to copy two fields. The system prompt now ends with an instruction to
+return the email in the final reply between `=== EMAIL ===` and
+`=== END EMAIL ===` markers, and the UI renders whatever sits between them as
+a subject/body box with its own Copy button. Nothing touches disk.
+
+### The engine is a choice
+
+Everything goes through the `Engine` interface in `core/claude/engine.js`:
+
+```js
+run(opts) -> { jobId, session, cancel() }
+```
+
+`CliEngine` is the only implementation, and it is complete: `claude -p` on this
+machine, under your subscription, with skills and file writing working because
+the CLI already does them. `ApiEngine` is **a deliberate stub**. Reproducing
+what the CLI gives free — a tool-use loop with Read/Write/Edit/Glob/Grep/Bash,
+a sandbox for them, skill resolution from `~/.claude/skills`, a turn cap and
+session resumption — is a project in its own right, and it bills per token
+instead of riding a subscription. `GONG_ENGINE=api` selects it and fails loudly
+rather than quietly producing nothing.
+
+The point of the interface is that no feature code knows which engine it is
+talking to, so that work can happen later without touching anything else.
+
+### Not leaving Claude running
+
+Headless runs bill for as long as they live, so there are three ways to stop
+one, in increasing severity:
+
+- **Cancel** on the running job — stops that run.
+- **Stop** in the top bar — cancels everything this server started.
+- The button beside *Claude CLI ready* — scans the machine for `claude`
+  processes, classifies them `app` / `terminal` / `ide`, and kills them. It
+  only kills PIDs its own scanner recognised, and it excludes
+  `/Applications/Claude.app/` so it can never close the desktop app.
+
+The usage chip in the top bar shows the running total, recorded per run from
+the CLI's own cost reporting.
+
+## Projects
+
+The **Projects** tab is one persistent chat per customer, so "what did we
+agree with Pennrose" is a conversation you return to rather than a run you
+repeat. Projects are created from the customer folders the organizer produces
+and matched on the same slug, so organizing is what populates the list.
+
+Each project keeps its transcripts, its message history and its Claude session
+id. **New chat** resets just the session id, keeping the history visible while
+starting Claude's context fresh.
+
+### Why runs live on the server
+
+Switching tabs used to kill a run, because the work belonged to the page. Runs
+are now server-owned (`runs.js`): the server creates a run, buffers every
+event, and a subscriber replays the buffer before following live. Leaving the
+tab detaches; coming back re-attaches and you see the whole run, including the
+parts that happened while you were gone — in-flight analysis, animation state
+and output all intact.
+
+The deliberate trade-off is that closing the tab no longer cancels the run.
+That is what makes the feature work at all, and it is mitigated by every run
+staying visible and stoppable from the top bar.
+
+Chats persist to `projects.json` (gitignored), capped at 400 messages per
+project; run buffers are capped at 4000 events and pruned every 15 minutes.
+
+## Automation
+
+The **Automation** tab runs the whole chain on a schedule: **pull from Gong →
+organize by customer → feed the transcripts into the projects.**
+
+```
+Pulling your calls from the last 3 day(s)
+  4 call(s) in 2026-09-11 .. 2026-09-14        4 saved · 0 skipped · 0 failed
+Grouping by customer
+  21 file(s) into 8 folder(s) · copy
+Assigning transcripts to projects
+  Bluprintx — 1 new transcript(s)
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| Run automatically | off | Master switch |
+| Time | 09:00 | Local time slot |
+| Days | Mon–Fri | Which days have a slot |
+| Pull the last | 2 | Days of calls to fetch |
+| Grace window | 20 min | How late the slot may still fire |
+| Organize | on, by customer, copy | Group before feeding projects |
+
+**Run now** does the same thing on demand, and both paths share one code
+path, so the manual button genuinely tests the scheduled one.
+
+### It will not wake your Mac
+
+The timer is a `setInterval` inside this server, not a launchd job and not
+`pmset`. That is the whole point: while the Mac is asleep the server is not
+running, the slot simply passes, and nothing is queued to fire on wake.
+
+This is the opposite of the launchd approach described under *Scheduling on a
+Mac that sleeps*, which deliberately catches up on wake. Both are here because
+they answer different questions — "don't disturb me" versus "never miss a
+day". If you want the second, install the plist; if you want the first, use
+this tab and leave the plist uninstalled.
+
+A slot that passes is recorded as missed rather than silently forgotten, and
+the history list shows skipped days alongside completed runs, so an empty
+folder is never a mystery. `graceMinutes` is what decides the boundary: wake
+within the window and the run still happens; wake three hours late and the day
+is marked missed and the scheduler waits for the next one.
+
 ## The three ID namespaces
 
 Easy to conflate, and they are not interchangeable:
@@ -355,6 +636,10 @@ GET /call/detailed-transcript?call-id={callId}
 
 ## Scheduling on a Mac that sleeps
 
+This is the *catch up on wake* option. If you would rather the Mac were never
+disturbed and missed days simply passed, use the **Automation** tab instead
+and leave the plist uninstalled — the two approaches are compared there.
+
 Two separate mechanisms — most setups only get the first right.
 
 **What fires the job.** `launchd`, not `cron`. With
@@ -364,7 +649,7 @@ Two separate mechanisms — most setups only get the first right.
 The plist runs `node gong.js me --days 2` daily at 09:00.
 
 ```bash
-cp com.sanjan.gong-transcript.plist ~/Library/LaunchAgents/
+cp legacy/automation/com.sanjan.gong-transcript.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.sanjan.gong-transcript.plist
 launchctl start com.sanjan.gong-transcript      # test it now
 tail -f logs/gong.err.log
@@ -428,16 +713,29 @@ unmodified integer literals verbatim, so the shell pipeline is safe.
 |---|---|
 | `gong.js` | Everything: auth, search, pagination, download, foldering |
 | `organize.js` | Regroups transcripts by customer or call |
-| `serve.js` | Local web server for the UI (loopback only) |
-| `ui/index.html` | The web UI — form, progress animation, summary |
-| `ui/assets/` | Scene artwork: `gong.png`, `laptop.png` (source), `laptop-cut.png` |
+| `library.js` | One view of what is on disk: roots, listing, reading, saving |
+| `claude-runner.js` | Spawns `claude -p`, tracks jobs, kills strays |
+| `runs.js` | Server-owned runs: record, replay, subscribe, cancel |
+| `projects.js` | Per-customer projects and their chat history |
+| `automation.js` | The scheduler and the pull → organize → projects pipeline |
+| `settings.js` | Workbench state, actions and usage totals |
+| `core/gong/` | `pull`, `diagnose`, `cookie` — the Gong work, free of HTTP |
+| `core/chat.js` | One chat turn, as a server-owned run |
+| `core/claude/engine.js` | The engine interface: CLI now, API adapter later |
+| `core/db/` | Drizzle schema, the SQLite handle, and the JSON importer |
+| `core/http.js` | `json`, `readBody`, SSE framing, the extension's CORS |
+| `instrumentation.js` | Starts the scheduler and the shutdown hooks, once |
+| `app/` | Next App Router: six pages and ~27 route handlers |
+| `components/` | TopBar, Composer, PullScene, and the shared pieces |
+| `lib/` | `useRunStream`, the markdown renderer, the formatters |
+| `data.db` | Everything that persists. Gitignored |
+| `public/assets/` | Scene artwork: `gong.png`, `laptop-cut.png` (trimmed) |
 | `gongTranscript.js` | Renderer: text / md / srt / vtt. Imported by `gong.js` |
 | `gong.env` | Config + cookie. Gitignored, `chmod 600` |
-| `com.sanjan.gong-transcript.plist` | launchd schedule |
+| `legacy/` | Three superseded generations: bash, vanilla, launchd. Nothing imports it |
 | `Start Gong UI.command` | Double-click to start the server and open the UI |
 | `Stop Gong UI.command` | Double-click to stop it |
 | `extension/` | Chrome extension that sends the session to the puller |
-| `legacy-bash/` | The superseded bash/python version. Safe to delete |
 
 ## Notes on the port
 

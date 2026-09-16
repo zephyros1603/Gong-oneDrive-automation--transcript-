@@ -1,0 +1,718 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projects · Gong Transcripts</title>
+<link rel="stylesheet" href="shell.css">
+<style>
+  /* ---- project list ---- */
+  #list { width: 300px; flex: none; background: var(--surface); border-right: 1px solid var(--line); }
+  #list > .head {
+    flex: none; display: flex; align-items: center; gap: 9px;
+    padding: 11px 12px; border-bottom: 1px solid var(--line-soft);
+  }
+  #list > .head .t {
+    flex: 1; font: 600 10.5px/1.4 var(--sans); letter-spacing: .09em;
+    text-transform: uppercase; color: var(--muted);
+  }
+
+  .prow {
+    display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left;
+    padding: 10px 13px; background: transparent; border: none; color: var(--text);
+    border-bottom: 1px solid var(--line-soft); cursor: pointer;
+  }
+  .prow:hover { background: var(--surface-2); }
+  .prow[aria-current="true"] { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  .prow .d { flex: 1; min-width: 0; }
+  /* These are spans, so they need making block or the name and the counts
+     run together on one wrapped line. */
+  .prow .nm {
+    display: block; font-weight: 560; font-size: 12.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .prow .sub { display: block; font: 10.5px/1.5 var(--mono); color: var(--faint); }
+  .prow .live {
+    flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+    margin-top: 5px; animation: throb 1s ease-in-out infinite;
+  }
+
+  /* ---- chat ---- */
+  #chat { flex: 1; background: var(--bg); }
+  #chat > .head {
+    flex: none; display: flex; align-items: center; gap: 11px;
+    padding: 11px 18px; border-bottom: 1px solid var(--line); background: var(--surface);
+  }
+  #chat > .head .meta { flex: 1; min-width: 0; }
+  #chat > .head .nm { font-weight: 620; font-size: 13.5px; }
+  #chat > .head .sub { font: 11px/1.5 var(--mono); color: var(--faint); }
+
+  #log { flex: 1; min-height: 0; overflow: auto; padding: 22px 24px 8px; }
+  .thread { max-width: 840px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+
+  .msg { display: flex; gap: 11px; }
+  .msg .who {
+    flex: none; width: 26px; height: 26px; border-radius: 7px;
+    display: grid; place-items: center; font: 600 10px/1 var(--sans); margin-top: 1px;
+  }
+  .msg.user .who { background: var(--surface-3); color: var(--muted); border: 1px solid var(--line); }
+  .msg.claude .who { background: linear-gradient(135deg, var(--accent), #6a5ae0); color: #fff; }
+  .msg .content { flex: 1; min-width: 0; }
+  .bubble { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 15px; }
+  .msg.user .bubble { background: var(--surface-2); }
+
+  .skill-used {
+    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px;
+    font: 600 10.5px/1 var(--sans); letter-spacing: .05em; text-transform: uppercase;
+    color: var(--accent); background: var(--accent-soft); border-radius: 5px; padding: 4px 7px;
+  }
+  .files-used { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+  .files-used span {
+    font: 10.5px/1 var(--mono); color: var(--faint);
+    border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px;
+  }
+  .reset-note {
+    margin-top: 8px; font-size: 11px; color: var(--warn);
+  }
+
+  .status { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--muted); }
+  .status .spin { animation: spin .9s linear infinite; transform-origin: center; flex: none; }
+  .status .what { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  .trace {
+    margin-top: 9px; font: 11px/1.7 var(--mono); color: var(--faint);
+    max-height: 140px; overflow: auto;
+  }
+  .trace .err { color: var(--bad); }
+  .meta-line { margin-top: 9px; font: 11px/1 var(--mono); color: var(--faint); display: flex; gap: 12px; }
+
+  /* ---- composer ---- */
+  #composer { flex: none; padding: 12px 24px 18px; }
+  .composer-inner {
+    max-width: 840px; margin: 0 auto; position: relative;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 13px;
+    transition: border-color .16s, box-shadow .16s;
+  }
+  .composer-inner:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .context { display: none; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px 12px 0; }
+  .context.show { display: flex; }
+  .row-input { display: flex; align-items: flex-end; gap: 9px; padding: 10px 12px; }
+
+  .plus {
+    flex: none; width: 32px; height: 32px; border-radius: 9px;
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+    display: grid; place-items: center; transition: transform .18s, border-color .15s;
+  }
+  .plus:hover { border-color: var(--accent); }
+  .plus[aria-expanded="true"] { transform: rotate(45deg); border-color: var(--accent); }
+
+  #prompt {
+    flex: 1; min-width: 0; resize: none; min-height: 0; height: 32px; max-height: 168px;
+    background: transparent; border: none; color: var(--text);
+    font: 13.5px/1.55 var(--sans); padding: 6px 0;
+  }
+  #prompt:focus { outline: none; }
+  .send {
+    flex: none; width: 32px; height: 32px; border-radius: 9px; border: none; color: #fff;
+    background: linear-gradient(135deg, var(--accent), #6a5ae0);
+    display: grid; place-items: center;
+  }
+  .send:disabled { opacity: .35; cursor: not-allowed; }
+  .send.stop { background: #ef5f6b; }
+
+  .picker {
+    position: absolute; bottom: calc(100% + 9px); left: 0; z-index: 30;
+    width: 420px; max-height: 420px; display: none; flex-direction: column;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 11px; box-shadow: 0 20px 50px -18px #000b; overflow: hidden;
+  }
+  .picker.show { display: flex; animation: rise .16s ease both; }
+  .picker > .h {
+    padding: 9px 13px; background: var(--surface-2); border-bottom: 1px solid var(--line-soft);
+    font: 600 10.5px/1.4 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
+  }
+  .picker .list { overflow: auto; }
+  .pick {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%; text-align: left;
+    padding: 9px 13px; background: transparent; border: none; color: var(--text);
+    border-bottom: 1px solid var(--line-soft); font-size: 12.5px; cursor: pointer;
+  }
+  .pick:hover:not(:disabled) { background: var(--surface-2); }
+  .pick:disabled { opacity: .5; cursor: not-allowed; }
+  .pick .lb { flex: none; font-weight: 620; min-width: 58px; }
+  .pick .ds { flex: 1; min-width: 0; font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+  .pick .tag {
+    flex: none; font: 9.5px/1 var(--sans); text-transform: uppercase; letter-spacing: .06em;
+    color: var(--warn); border: 1px solid #e9b94955; border-radius: 4px; padding: 2px 4px;
+  }
+  .pick.file { align-items: center; }
+  .pick.file .fn {
+    flex: 1; min-width: 0; font: 11.5px/1.4 var(--mono);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .hint-row { padding: 9px 13px; font-size: 11px; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="panes">
+    <section class="pane" id="list">
+      <div class="head">
+        <span class="t">Projects</span>
+        <button class="icon-btn" id="sync" type="button" style="padding:5px 9px;font-size:11.5px">Sync</button>
+      </div>
+      <div class="scroll" id="project-list"></div>
+    </section>
+
+    <div class="splitter" id="splitter"></div>
+
+    <section class="pane" id="chat">
+      <div class="head">
+        <div class="meta">
+          <div class="nm" id="p-name">No project selected</div>
+          <div class="sub" id="p-sub"></div>
+        </div>
+        <button class="icon-btn" id="new-chat" type="button" title="Drop the conversation context and start fresh">
+          New chat
+        </button>
+      </div>
+
+      <div id="log"><div class="thread" id="thread"></div></div>
+
+      <div id="composer">
+        <div class="composer-inner">
+          <div class="context" id="context"></div>
+          <div class="row-input">
+            <button class="plus" id="plus" type="button" aria-expanded="false" title="Add a skill or transcript">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+            <textarea id="prompt" rows="1"
+              placeholder="Ask anything about this customer — no skill or file needed"></textarea>
+            <button class="send" id="send" type="button" title="Send (Enter)" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+
+          <div class="picker" id="picker">
+            <div class="h">Skills</div>
+            <div class="list" id="picker-skills"></div>
+            <div class="h">Transcripts in this project</div>
+            <div class="list" id="picker-files"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script type="module">
+import { mdToHtml, extractEmail, attachCopy, COPY_ICON, MD_STYLES } from './md.js';
+import { mountTopbar, esc, kb, stripName, money4, renderEmailBox, renderDocCard } from './shell.js';
+
+const st = document.createElement('style');
+st.textContent = MD_STYLES;
+document.head.append(st);
+
+const $ = (id) => document.getElementById(id);
+
+const state = {
+  projects: [], project: null, skills: null,
+  skill: null, files: new Set(),
+  filesChanged: false,
+  run: null,            // { id, abort }
+  liveEl: null,
+};
+
+const LAST_KEY = 'gong.lastProject';
+
+/* ================= loading ================= */
+async function loadProjects() {
+  const d = await fetch('/api/projects').then((r) => r.json());
+  state.projects = d.projects;
+  state.active = d.active || [];
+  renderList();
+}
+
+function renderList() {
+  const host = $('project-list');
+  if (!state.projects.length) {
+    host.innerHTML = `<div class="empty">No projects yet.<br>
+      Press <b>Sync</b> to create one per customer folder,<br>or run the Automation tab.</div>`;
+    return;
+  }
+
+  host.innerHTML = state.projects.map((p) => {
+    const live = (state.active || []).some((r) => r.projectId === p.id);
+    return `<button class="prow" type="button" data-id="${esc(p.id)}"
+              aria-current="${state.project?.id === p.id}">
+      ${live ? '<span class="live"></span>' : '<span style="width:7px;flex:none"></span>'}
+      <span class="d">
+        <span class="nm">${esc(p.name)}</span>
+        <span class="sub">${p.transcriptCount} transcript${p.transcriptCount === 1 ? '' : 's'}
+          · ${p.messageCount} message${p.messageCount === 1 ? '' : 's'}</span>
+      </span>
+    </button>`;
+  }).join('');
+
+  host.querySelectorAll('[data-id]').forEach((b) => {
+    b.onclick = () => openProject(b.dataset.id);
+  });
+}
+
+/* ================= a project ================= */
+async function openProject(id) {
+  // Leaving a project must not kill its run — just stop listening.
+  state.run?.abort?.();
+  state.run = null;
+  state.liveEl = null;
+
+  const d = await fetch(`/api/projects/${id}`).then((r) => r.json());
+  state.project = d.project;
+  state.skill = null;
+  state.files = new Set();
+  state.filesChanged = false;
+  localStorage.setItem(LAST_KEY, id);
+
+  $('p-name').textContent = d.project.name;
+  $('p-sub').textContent =
+    `${d.project.transcriptCount} transcript${d.project.transcriptCount === 1 ? '' : 's'}` +
+    (d.project.sessionId ? ' · conversation in context' : ' · fresh conversation');
+
+  renderList();
+  renderThread();
+  renderContext();
+  renderPicker();
+
+  // If a run is in flight, attach to it and replay everything missed.
+  const live = (d.active || [])[0];
+  if (live) attachRun(live.id);
+}
+
+function renderThread() {
+  const thread = $('thread');
+  thread.innerHTML = '';
+
+  const messages = state.project?.messages || [];
+  if (!messages.length) {
+    thread.innerHTML = `<div class="msg claude"><div class="who">AI</div><div class="content">
+      <div class="bubble"><div class="md">
+        <p>This is the conversation for <b>${esc(state.project.name)}</b>. It is saved, so you
+        can leave and come back — including while Claude is still working.</p>
+        <p>Ask a question directly, or use <b>+</b> to add a skill and transcripts.</p>
+      </div></div></div></div>`;
+    return;
+  }
+
+  for (const m of messages) renderMessage(m);
+  $('log').scrollTop = $('log').scrollHeight;
+}
+
+function renderMessage(m) {
+  if (m.role === 'user') {
+    bubble('user', `<div class="bubble">
+      ${m.skill ? `<div class="skill-used">${esc(m.skill.label)}</div>` : ''}
+      ${m.text ? `<div class="md">${mdToHtml(m.text)}</div>`
+               : '<div class="md" style="color:var(--muted)"><p>(skill run)</p></div>'}
+      ${(m.files || []).length ? `<div class="files-used">${
+        m.files.map((f) => `<span>${esc(stripName(f.name))}</span>`).join('')}</div>` : ''}
+      ${m.sessionReset ? '<div class="reset-note">New session — earlier context dropped</div>' : ''}
+    </div>`);
+    return;
+  }
+
+  const el = bubble('claude', '<div class="bubble"></div>');
+  const bub = el.querySelector('.bubble');
+
+  if (m.pending) {
+    // A reply that never finished (server restarted mid-run).
+    bub.innerHTML = '<div class="md" style="color:var(--warn)"><p>Interrupted — the run did not finish.</p></div>';
+    return;
+  }
+
+  const { email, rest } = extractEmail(m.text || '');
+  if (rest.trim()) {
+    const d = document.createElement('div');
+    d.className = 'md';
+    d.innerHTML = mdToHtml(rest);
+    bub.append(d);
+  }
+  if (m.cancelled) {
+    const c = document.createElement('div');
+    c.className = 'md';
+    c.innerHTML = '<p style="color:var(--warn)">Cancelled.</p>';
+    bub.append(c);
+  }
+  if (email) renderEmailBox(bub, email, { attachCopy, COPY_ICON, mdToHtml, esc });
+  for (const doc of m.documents || []) renderDocCard(bub, doc, { esc, kb, mdToHtml });
+
+  if (m.cost != null || m.turns) {
+    const meta = document.createElement('div');
+    meta.className = 'meta-line';
+    meta.textContent = [
+      m.cost != null ? money4(m.cost) : '',
+      m.durationMs ? `${(m.durationMs / 1000).toFixed(0)}s` : '',
+      m.turns ? `${m.turns} turns` : '',
+    ].filter(Boolean).join(' · ');
+    bub.append(meta);
+  }
+  return el;
+}
+
+function bubble(who, inner) {
+  const el = document.createElement('div');
+  el.className = `msg ${who}`;
+  el.innerHTML = `<div class="who">${who === 'user' ? 'You' : 'AI'}</div>
+    <div class="content">${inner}</div>`;
+  $('thread').append(el);
+  $('log').scrollTop = $('log').scrollHeight;
+  return el;
+}
+
+/* ================= composer ================= */
+function renderContext() {
+  const box = $('context');
+  const bits = [];
+
+  if (state.skill) {
+    bits.push(`<span class="pill skill"><span class="k">Skill</span>${esc(state.skill.label)}
+      <button class="x" data-drop-skill><svg width="11" height="11" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button></span>`);
+  }
+  for (const p of [...state.files].slice(0, 6)) {
+    const f = (state.project?.transcripts || []).includes(p) ? p : p;
+    bits.push(`<span class="pill file">${esc(stripName(f.split('/').pop()))}
+      <button class="x" data-drop-file="${esc(p)}"><svg width="11" height="11" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+        <path d="M18 6 6 18M6 6l12 12"/></svg></button></span>`);
+  }
+  if (state.files.size > 6) {
+    bits.push(`<span class="pill file" style="color:var(--faint)">+${state.files.size - 6} more</span>`);
+  }
+  if (state.filesChanged && state.project?.sessionId) {
+    bits.push('<span class="pill warn">attaching files starts a new session</span>');
+  }
+
+  box.innerHTML = bits.join('');
+  box.classList.toggle('show', bits.length > 0);
+
+  box.querySelector('[data-drop-skill]')?.addEventListener('click', () => {
+    state.skill = null; renderContext(); renderPicker();
+  });
+  box.querySelectorAll('[data-drop-file]').forEach((b) => {
+    b.onclick = () => { state.files.delete(b.dataset.dropFile); renderContext(); renderPicker(); };
+  });
+  updateSend();
+}
+
+function updateSend() {
+  const btn = $('send');
+  if (state.run) {
+    btn.disabled = false;
+    btn.classList.add('stop');
+    btn.title = 'Stop this run';
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+    return;
+  }
+  btn.classList.remove('stop');
+  btn.title = 'Send (Enter)';
+  btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  // A question needs neither a skill nor a file.
+  btn.disabled = !state.project || (!$('prompt').value.trim() && !state.skill);
+}
+
+function renderPicker() {
+  const actions = state.skills?.actions || [];
+  $('picker-skills').innerHTML = actions.map((a) => `
+    <button class="pick" type="button" data-pick="${esc(a.id)}" ${a.installed ? '' : 'disabled'}>
+      <span class="lb">${esc(a.label)}</span>
+      <span class="ds">${esc(a.title || a.instruction)}</span>
+      ${a.installed ? '' : '<span class="tag">blueprint</span>'}
+    </button>`).join('') || '<div class="hint-row">No skills configured.</div>';
+
+  const files = state.project?.transcripts || [];
+  $('picker-files').innerHTML = files.length
+    ? files.map((p) => `
+      <button class="pick file" type="button" data-file="${esc(p)}">
+        <input type="checkbox" ${state.files.has(p) ? 'checked' : ''} tabindex="-1">
+        <span class="fn">${esc(stripName(p.split('/').pop()))}</span>
+      </button>`).join('')
+    : '<div class="hint-row">No transcripts assigned yet — run Automation or press Sync.</div>';
+
+  $('picker-skills').querySelectorAll('[data-pick]').forEach((b) => {
+    b.onclick = () => {
+      state.skill = actions.find((a) => a.id === b.dataset.pick);
+      closePicker(); renderContext(); $('prompt').focus();
+    };
+  });
+  $('picker-files').querySelectorAll('[data-file]').forEach((b) => {
+    b.onclick = () => {
+      const p = b.dataset.file;
+      state.files.has(p) ? state.files.delete(p) : state.files.add(p);
+      state.filesChanged = true;
+      renderPicker(); renderContext();
+    };
+  });
+}
+
+const openPicker = () => { $('picker').classList.add('show'); $('plus').setAttribute('aria-expanded', 'true'); };
+const closePicker = () => { $('picker').classList.remove('show'); $('plus').setAttribute('aria-expanded', 'false'); };
+$('plus').onclick = (e) => {
+  e.stopPropagation();
+  $('picker').classList.contains('show') ? closePicker() : openPicker();
+};
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#picker') && !e.target.closest('#plus')) closePicker();
+});
+
+const autosize = () => {
+  const t = $('prompt');
+  t.style.height = '32px';
+  if (t.value) t.style.height = `${Math.min(t.scrollHeight, 168)}px`;
+};
+$('prompt').addEventListener('input', () => { autosize(); updateSend(); });
+$('prompt').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!$('send').disabled) onSend(); }
+});
+$('send').onclick = onSend;
+
+$('new-chat').onclick = async () => {
+  if (!state.project) return;
+  await fetch(`/api/projects/${state.project.id}/reset-session`, { method: 'POST' });
+  state.project.sessionId = null;
+  state.filesChanged = false;
+  $('p-sub').textContent = `${state.project.transcriptCount} transcript${state.project.transcriptCount === 1 ? '' : 's'} · fresh conversation`;
+  bubble('claude', `<div class="bubble"><div class="md" style="color:var(--muted)">
+    <p>New session. Earlier messages stay here for reference, but Claude no longer
+    has them in context — so the next question starts cheap.</p></div></div>`);
+  renderContext();
+};
+
+/* ================= sending ================= */
+async function onSend() {
+  if (state.run) { // acting as a Stop button
+    await fetch(`/api/runs/${state.run.id}/cancel`, { method: 'POST' });
+    return;
+  }
+  if (!state.project) return;
+
+  const text = $('prompt').value.trim();
+  const body = {
+    projectId: state.project.id,
+    actionId: state.skill?.id || null,
+    message: text,
+    files: [...state.files],
+    filesChanged: state.filesChanged,
+  };
+
+  $('prompt').value = '';
+  autosize();
+
+  const r = await fetch('/api/runs', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then((x) => x.json());
+
+  if (r.error) {
+    bubble('claude', `<div class="bubble"><div class="md">
+      <p style="color:var(--bad)">${esc(r.error)}</p></div></div>`);
+    return;
+  }
+
+  // Re-read so the persisted user message renders exactly as stored.
+  const d = await fetch(`/api/projects/${state.project.id}`).then((x) => x.json());
+  state.project = d.project;
+  state.filesChanged = false;
+  renderThread();
+  renderContext();
+
+  attachRun(r.runId);
+}
+
+/**
+ * Follow a run. Buffered events replay first, so attaching after a tab switch
+ * reproduces the whole thing — status, tool trace and partial output.
+ */
+function attachRun(runId) {
+  state.run = { id: runId, abort: null };
+  updateSend();
+
+  const el = bubble('claude', `<div class="bubble">
+    <div class="status">
+      <svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)"
+           stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.2-8.5" stroke-linecap="round"/></svg>
+      <span class="phase">Working</span><span class="what"></span>
+    </div>
+    <div class="trace"></div></div>`);
+  state.liveEl = el;
+
+  const bub = el.querySelector('.bubble');
+  const status = el.querySelector('.status');
+  const phase = el.querySelector('.phase');
+  const what = el.querySelector('.what');
+  const trace = el.querySelector('.trace');
+
+  const PHASES = {
+    starting: 'Starting', analysing: 'Analysing transcripts',
+    generating: 'Generating', writing: 'Writing documents', working: 'Working',
+  };
+
+  let prose = '';
+  let startedAt = Date.now();
+  let cancelled = false;
+  let meta = '';
+  let docs = [];
+
+  const ctrl = new AbortController();
+  state.run.abort = () => ctrl.abort();
+
+  (async () => {
+    try {
+      const res = await fetch(`/api/runs/${runId}/stream`, { signal: ctrl.signal });
+      if (!res.body) throw new Error('no stream');
+
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+
+        let i;
+        while ((i = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, i);
+          buf = buf.slice(i + 2);
+          const line = frame.split('\n').find((l) => l.startsWith('data:'));
+          if (!line) continue;
+          const ev = JSON.parse(line.slice(5).trim());
+
+          if (ev.type === 'start') { if (ev.at) startedAt = ev.at; }
+          else if (ev.type === 'phase') phase.textContent = PHASES[ev.phase] || ev.phase;
+          else if (ev.type === 'tool') {
+            what.textContent = ev.label;
+            const l = document.createElement('div');
+            l.textContent = ev.label;
+            trace.append(l);
+            trace.scrollTop = trace.scrollHeight;
+          } else if (ev.type === 'text') prose += ev.text;
+          else if (ev.type === 'cancelled') cancelled = true;
+          else if (ev.type === 'error') {
+            const l = document.createElement('div');
+            l.className = 'err';
+            l.textContent = ev.message;
+            trace.append(l);
+          } else if (ev.type === 'done') {
+            if (ev.result) prose = ev.result;
+            meta = [
+              ev.costUsd != null ? money4(ev.costUsd) : '',
+              ev.durationMs ? `${(ev.durationMs / 1000).toFixed(0)}s` : '',
+              ev.turns ? `${ev.turns} turns` : '',
+            ].filter(Boolean).join(' · ');
+          } else if (ev.type === 'output') {
+            // Anchored on when the run started, not on now: re-attaching to a
+            // run that finished an hour ago must still show its documents.
+            docs = (ev.files || []).filter((f) => f.mtime >= startedAt - 60000);
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        const l = document.createElement('div');
+        l.className = 'err';
+        l.textContent = err.message;
+        trace.append(l);
+      }
+      // An abort means the user navigated away; the run continues server-side.
+      if (err.name === 'AbortError') return;
+    }
+
+    // ---- settle ----
+    status.remove();
+    if (!trace.textContent.trim()) trace.remove();
+
+    const { email, rest } = extractEmail(prose);
+    if (rest.trim()) {
+      const d = document.createElement('div');
+      d.className = 'md';
+      d.innerHTML = mdToHtml(rest);
+      bub.prepend(d);
+    }
+    if (cancelled) {
+      const c = document.createElement('div');
+      c.className = 'md';
+      c.innerHTML = '<p style="color:var(--warn)">Cancelled.</p>';
+      bub.prepend(c);
+    }
+    if (email) renderEmailBox(bub, email, { attachCopy, COPY_ICON, mdToHtml, esc });
+    for (const doc of docs) renderDocCard(bub, doc, { esc, kb, mdToHtml });
+    if (meta) {
+      const m = document.createElement('div');
+      m.className = 'meta-line';
+      m.textContent = meta;
+      bub.append(m);
+    }
+
+    state.run = null;
+    state.liveEl = null;
+    updateSend();
+
+    // Refresh so counts and the stored reply agree with what is on screen.
+    const d2 = await fetch(`/api/projects/${state.project.id}`).then((x) => x.json());
+    state.project = d2.project;
+    await loadProjects();
+  })();
+}
+
+/* ================= misc ================= */
+$('sync').onclick = async () => {
+  const b = $('sync');
+  b.disabled = true; b.textContent = '…';
+  await fetch('/api/projects', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sync: true }),
+  });
+  await loadProjects();
+  if (state.project) await openProject(state.project.id);
+  b.disabled = false; b.textContent = 'Sync';
+};
+
+$('splitter').addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  document.body.classList.add('resizing');
+  const move = (ev) => {
+    $('list').style.width = `${Math.min(Math.max(ev.clientX, 200), window.innerWidth - 420)}px`;
+  };
+  const up = () => {
+    document.body.classList.remove('resizing');
+    removeEventListener('mousemove', move); removeEventListener('mouseup', up);
+  };
+  addEventListener('mousemove', move); addEventListener('mouseup', up);
+});
+
+// Keep the live dot on the project list honest.
+setInterval(async () => {
+  if (state.run) return;
+  try {
+    const d = await fetch('/api/projects').then((r) => r.json());
+    state.projects = d.projects; state.active = d.active || [];
+    renderList();
+  } catch { /* server restarting */ }
+}, 5000);
+
+/* ================= boot ================= */
+await mountTopbar($('topbar'), 'projects');
+state.skills = await fetch('/api/skills').then((r) => r.json());
+await loadProjects();
+
+const last = localStorage.getItem(LAST_KEY);
+const start = state.projects.find((p) => p.id === last) || state.projects[0];
+if (start) await openProject(start.id);
+</script>
+</body>
+</html>

@@ -280,7 +280,18 @@ const isNodeCli =
   process.argv?.[1] &&
   import.meta.url === `file://${process.argv[1]}`;
 
+// Started, not awaited. This module is pure string work and reaches the web
+// app through gong.js; a *top-level* await — including `await runCli()` —
+// makes the whole module a topLevelAwait dependency for every consumer, which
+// webpack warns about on every build. Same shape gong.js uses for its CLI.
 if (isNodeCli) {
+  runCli().catch((err) => {
+    console.error(err?.message || err);
+    process.exit(1);
+  });
+}
+
+async function runCli() {
   const { readFileSync, writeFileSync } = await import('node:fs');
   const argv = process.argv.slice(2);
 
