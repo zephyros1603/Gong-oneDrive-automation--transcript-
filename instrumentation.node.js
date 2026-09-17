@@ -21,6 +21,8 @@
 
 import * as runs from './runs.js';
 import { tick } from './automation.js';
+import { tickSchedules } from './core/workflow/scheduler.js';
+import { ensureBuiltins } from './core/workflow/store.js';
 import { killAllNow, cancelAll } from './claude-runner.js';
 
 const g = globalThis;
@@ -36,9 +38,14 @@ if (!g.__gong_instrumented) {
   // ---- the scheduler -----------------------------------------------------
   // Deliberately a timer inside this process, not launchd: it therefore
   // cannot wake the Mac, and while the Mac sleeps the slot simply passes.
+  ensureBuiltins();
+
   const scheduler = setInterval(() => {
     try {
+      // The legacy single pipeline, kept so an existing automation config does
+      // not silently stop working, plus every workflow schedule.
       tick({ onRun: (run) => console.log(`  · automation started (${run.id})`) });
+      tickSchedules({ onRun: (r) => console.log(`  · schedule fired (${r.runId})`) });
     } catch (err) {
       console.error('  ! scheduler tick failed:', err?.message || err);
     }

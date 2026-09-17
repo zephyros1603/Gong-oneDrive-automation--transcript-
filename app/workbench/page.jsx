@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Composer, { RunStatus } from '@/components/Composer.jsx';
 import {
   Markdown, EmailBox, DocCard, Empty, Pill, Spinner, useEmailSplit,
-} from '@/components/ui.jsx';
+} from '@/components/common.jsx';
 import SidebarLayout, { SidebarToggle } from '@/components/SidebarLayout.jsx';
 import { useRunStream } from '@/lib/useRunStream.js';
 import { kb, stripName, runMeta, money } from '@/lib/format.js';
@@ -212,8 +212,8 @@ export default function WorkbenchPage() {
               onClick={() => setSide(s)}
               className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2
                 text-[12px] font-medium capitalize transition-colors
-                ${side === s ? 'bg-[var(--accent)] text-white'
-                             : 'bg-[var(--surface-2)] text-[var(--muted)]'}`}
+                ${side === s ? 'bg-[var(--brand)] text-white'
+                             : 'bg-[var(--surface-2)] text-[var(--text-muted)]'}`}
             >
               {s}
               <span className="rounded bg-black/20 px-1.5 font-mono text-[10px]">
@@ -254,7 +254,7 @@ export default function WorkbenchPage() {
                       checked={all}
                       ref={(el) => { if (el) el.indeterminate = some; }}
                       onChange={() => toggleGroup(items)}
-                      className="flex-none accent-[var(--accent)]"
+                      className="flex-none accent-[var(--brand)]"
                     />
                   )}
                   <span className="flex-1 truncate text-[12px] font-medium">{group}</span>
@@ -270,13 +270,13 @@ export default function WorkbenchPage() {
                         type="checkbox"
                         checked={selected.has(f.path)}
                         onChange={() => toggleFile(f.path)}
-                        className="flex-none accent-[var(--accent)]"
+                        className="flex-none accent-[var(--brand)]"
                       />
                     )}
                     <a
                       href={`/preview?path=${encodeURIComponent(f.path)}`}
                       className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--text)] no-underline
-                                 hover:text-[var(--accent)]"
+                                 hover:text-[var(--brand)]"
                       title={f.path}
                     >
                       {stripName(f.name)}
@@ -311,7 +311,7 @@ export default function WorkbenchPage() {
               onClick={() => killProcesses(['app', 'terminal', 'ide'])}
               title={processes.map((p) => `${p.kind}: ${p.note}`).join('\n')}
               className="hidden rounded-lg border border-[var(--line)] bg-[var(--surface-2)]
-                         px-2.5 py-1.5 text-[11.5px] text-[var(--muted)] hover:text-[var(--bad)] md:block"
+                         px-2.5 py-1.5 text-[11.5px] text-[var(--text-muted)] hover:text-[var(--bad)] md:block"
             >
               Stop all Claude processes ({processes.length})
             </button>
@@ -326,7 +326,7 @@ export default function WorkbenchPage() {
             )}
             <button onClick={newChat}
                     className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)]
-                               px-3 py-1.5 text-[12px] text-[var(--muted)] hover:text-[var(--text)]">
+                               px-3 py-1.5 text-[12px] text-[var(--text-muted)] hover:text-[var(--text)]">
               New chat
             </button>
           </div>
@@ -336,7 +336,7 @@ export default function WorkbenchPage() {
           {turns.length === 0 && !runId && (
             <div className="mx-auto max-w-[620px] rounded-xl border border-[var(--line)]
                             bg-[var(--surface-2)] p-4 text-[12.5px] leading-relaxed
-                            text-[var(--muted)]">
+                            text-[var(--text-muted)]">
               <p className="mb-2">
                 Select transcripts on the left, then either pick a skill with <strong>+</strong> —
                 MOM, WSR, MSR — or just ask a question about them.
@@ -350,7 +350,7 @@ export default function WorkbenchPage() {
 
           {turns.map((t) => t.role === 'system' ? (
             <div key={t.id} className="mx-auto max-w-[620px] rounded-xl border border-[var(--line)]
-                                       bg-[var(--surface-2)] p-3 text-[12px] text-[var(--muted)]">
+                                       bg-[var(--surface-2)] p-3 text-[12px] text-[var(--text-muted)]">
               New session. Earlier messages stay on screen for reference, but Claude no longer
               has them in context — so the next question starts cheap.
             </div>
@@ -358,8 +358,8 @@ export default function WorkbenchPage() {
             <div key={t.id} className={`flex gap-2.5 ${t.role === 'user' ? 'flex-row-reverse' : ''}`}>
               <div className={`mt-0.5 grid h-7 w-7 flex-none place-items-center rounded-lg
                                text-[10px] font-semibold
-                               ${t.role === 'user' ? 'bg-[var(--surface-3)] text-[var(--muted)]'
-                                                   : 'bg-[var(--accent)] text-white'}`}>
+                               ${t.role === 'user' ? 'bg-[var(--surface-3)] text-[var(--text-muted)]'
+                                                   : 'bg-[var(--brand)] text-white'}`}>
                 {t.role === 'user' ? 'You' : 'AI'}
               </div>
               <div className="min-w-0 max-w-[88%] sm:max-w-[76%] rounded-[12px] border border-[var(--line)]
@@ -388,7 +388,7 @@ export default function WorkbenchPage() {
           {runId && (
             <div className="flex gap-2.5">
               <div className="mt-0.5 grid h-7 w-7 flex-none place-items-center rounded-lg
-                              bg-[var(--accent)] text-[10px] font-semibold text-white">AI</div>
+                              bg-[var(--brand)] text-[10px] font-semibold text-white">AI</div>
               <div className="min-w-0 max-w-[88%] sm:max-w-[76%] rounded-[12px] border border-[var(--line)]
                               bg-[var(--surface-2)] px-3.5 py-2.5">
                 {run.status === 'running' && (

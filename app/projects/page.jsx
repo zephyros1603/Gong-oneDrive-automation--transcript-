@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Composer, { RunStatus } from '@/components/Composer.jsx';
 import {
   Markdown, EmailBox, DocCard, Empty, Pill, useEmailSplit,
-} from '@/components/ui.jsx';
+} from '@/components/common.jsx';
 import SidebarLayout, { SidebarToggle } from '@/components/SidebarLayout.jsx';
 import { useRunStream } from '@/lib/useRunStream.js';
 import { runMeta, stripName, plural } from '@/lib/format.js';
@@ -32,8 +32,8 @@ function Message({ message }) {
     <div className={`flex gap-2.5 ${mine ? 'flex-row-reverse' : ''}`}>
       <div className={`mt-0.5 grid h-7 w-7 flex-none place-items-center rounded-lg
                        text-[10px] font-semibold
-                       ${mine ? 'bg-[var(--surface-3)] text-[var(--muted)]'
-                              : 'bg-[var(--accent)] text-white'}`}>
+                       ${mine ? 'bg-[var(--surface-3)] text-[var(--text-muted)]'
+                              : 'bg-[var(--brand)] text-white'}`}>
         {mine ? 'You' : 'AI'}
       </div>
 
@@ -201,7 +201,7 @@ export default function ProjectsPage() {
           </span>
           <button onClick={sync} disabled={syncing}
                   className="rounded-md border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1
-                             text-[11px] text-[var(--muted)] hover:text-[var(--text)]">
+                             text-[11px] text-[var(--text-muted)] hover:text-[var(--text)]">
             {syncing ? '…' : 'Sync'}
           </button>
         </div>
@@ -218,7 +218,7 @@ export default function ProjectsPage() {
               onClick={() => openProject(p.id)}
               className={`flex w-full items-center gap-2 border-l-2 px-3 py-2.5 text-left
                 transition-colors ${project?.id === p.id
-                  ? 'border-l-[var(--accent)] bg-[var(--accent)]/10'
+                  ? 'border-l-[var(--brand)] bg-[var(--brand)]/10'
                   : 'border-l-transparent hover:bg-[var(--surface-2)]'}`}
             >
               <span className="min-w-0 flex-1">
@@ -228,7 +228,7 @@ export default function ProjectsPage() {
                 </span>
               </span>
               {activeIds.has(p.id) && (
-                <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-[var(--accent)]"
+                <span className="h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-[var(--brand)]"
                       title="A run is in flight" />
               )}
             </button>
@@ -266,7 +266,7 @@ export default function ProjectsPage() {
               <button onClick={newChat}
                       className="ml-auto flex-none rounded-lg border border-[var(--line)]
                                  bg-[var(--surface-2)] px-3 py-1.5 text-[12px]
-                                 text-[var(--muted)] hover:text-[var(--text)]">
+                                 text-[var(--text-muted)] hover:text-[var(--text)]">
                 New chat
               </button>
             </header>
@@ -275,7 +275,7 @@ export default function ProjectsPage() {
               {messages.length === 0 && !runId && (
                 <div className="mx-auto max-w-[620px] rounded-xl border border-[var(--line)]
                                 bg-[var(--surface-2)] p-4 text-[12.5px] leading-relaxed
-                                text-[var(--muted)]">
+                                text-[var(--text-muted)]">
                   Ask anything about this customer. Their {plural(project.transcriptCount, 'transcript')}
                   {' '}are already in scope — no need to attach files.
                 </div>
@@ -286,7 +286,7 @@ export default function ProjectsPage() {
               {runId && (
                 <div className="flex gap-2.5">
                   <div className="mt-0.5 grid h-7 w-7 flex-none place-items-center rounded-lg
-                                  bg-[var(--accent)] text-[10px] font-semibold text-white">AI</div>
+                                  bg-[var(--brand)] text-[10px] font-semibold text-white">AI</div>
                   <div className="min-w-0 max-w-[88%] sm:max-w-[76%] rounded-[12px] border border-[var(--line)]
                                   bg-[var(--surface-2)] px-3.5 py-2.5">
                     {run.status === 'running' && (

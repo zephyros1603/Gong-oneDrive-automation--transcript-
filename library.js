@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { join, resolve, relative, basename, sep, dirname } from 'node:path';
 import { loadConfig, slug } from './gong.js';
+import { memo, invalidate } from './core/cache.js';
 
 export const PREVIEWABLE = /\.(md|txt|srt|vtt|docx|pdf)$/i;
 export const READABLE_TEXT = /\.(md|txt|srt|vtt)$/i;
@@ -40,8 +41,18 @@ export function isReadable(target, cfg = loadConfig()) {
   return roots(cfg).some((r) => abs === r.path || abs.startsWith(r.path + sep));
 }
 
-/** Every previewable file under the configured roots, newest first. */
+/**
+ * Every previewable file under the configured roots, newest first.
+ *
+ * Memoised for a second: several endpoints call this, some of them poll, and
+ * one request can reach it more than once. A second is short enough that a
+ * freshly pulled transcript still shows up on the next tick.
+ */
 export function listFiles(cfg = loadConfig()) {
+  return memo('library:files', 1000, () => listFilesUncached(cfg));
+}
+
+export function listFilesUncached(cfg = loadConfig()) {
   const out = [];
 
   const walk = (dir, root) => {
@@ -163,6 +174,10 @@ export function version(kind, cfg = loadConfig()) {
 }
 
 /** Write a generated document, only ever inside the docs folder. */
+export function refresh() {
+  invalidate('library');
+}
+
 export function saveDocument({ name, content, folder = '' }, cfg = loadConfig()) {
   if (!content || !String(content).trim()) throw new Error('no content to save');
 

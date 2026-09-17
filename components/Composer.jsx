@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Pill, Spinner } from './ui.jsx';
+import { Pill, Spinner } from './common.jsx';
 import { stripName } from '@/lib/format.js';
 import { useViewportWidth } from '@/lib/useResponsive.js';
 
@@ -77,10 +77,14 @@ export default function Composer({
 
   return (
     <div className="px-4 pb-4">
-      <div className="mx-auto max-w-[860px] overflow-hidden rounded-[14px] border
+      {/* No `overflow-hidden` here, deliberately. It clipped the skill picker,
+          which opens upward and out of these bounds — the popover appeared
+          sliced in half on every page with a composer. The rounded corners are
+          kept by rounding the first and last rows instead. */}
+      <div className="mx-auto max-w-[860px] rounded-[14px] border
                       border-[var(--line)] bg-[var(--surface-2)]">
         {context.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 border-b border-[var(--line-soft)] px-3 py-2">
+          <div className="flex flex-wrap gap-1.5 rounded-t-[13px] border-b border-[var(--line-soft)] px-3 py-2">
             {context.map((c) => (
               <Pill key={c.key} tone={c.tone} onRemove={c.onRemove} title={c.label}>
                 {c.label}
@@ -89,23 +93,23 @@ export default function Composer({
           </div>
         )}
 
-        <div className="flex items-end gap-2 p-2.5">
+        <div className="flex items-end gap-2 rounded-b-[13px] p-2.5">
           <div className="relative flex-none" ref={picker}>
             <button
               type="button"
               onClick={() => setPicking((p) => !p)}
               title="Add a skill"
               className="grid h-8 w-8 place-items-center rounded-[9px] border border-[var(--line)]
-                         bg-[var(--surface-3)] text-[16px] leading-none text-[var(--muted)]
+                         bg-[var(--surface-3)] text-[16px] leading-none text-[var(--text-muted)]
                          hover:text-[var(--text)]"
             >
               +
             </button>
 
             {picking && (
-              <div className="absolute bottom-10 left-0 z-20 max-h-[320px] w-[300px]
-                              overflow-y-auto rounded-[11px] border border-[var(--line)]
-                              bg-[var(--surface)] p-1.5 shadow-2xl">
+              <div className="absolute bottom-11 left-0 z-50 max-h-[min(340px,50vh)]
+                              w-[min(300px,80vw)] overflow-y-auto rounded-xl border
+                              border-border bg-popover p-1.5 shadow-2xl">
                 {skills.length === 0 && (
                   <div className="p-3 text-[12px] text-[var(--faint)]">No skills installed.</div>
                 )}
@@ -167,7 +171,7 @@ export default function Composer({
               disabled={!canSend}
               title="Send"
               className="grid h-8 w-8 flex-none place-items-center rounded-[9px]
-                         bg-[var(--accent)] text-white disabled:opacity-35"
+                         bg-[var(--brand)] text-white disabled:opacity-35"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                    strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -190,7 +194,7 @@ export function RunStatus({ phase, tool, trace = [] }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 text-[12.5px] text-[var(--muted)]">
+      <div className="flex items-center gap-2 text-[12.5px] text-[var(--text-muted)]">
         <Spinner />
         <span className="font-medium text-[var(--text)]">{phase || 'Working'}</span>
         <span className="truncate text-[var(--faint)]">{tool}</span>

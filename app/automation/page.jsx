@@ -1,327 +1,341 @@
 'use client';
 
 /**
- * Automation — pull from Gong, organize by customer, feed the projects.
+ * Automation — scheduled workflows on the left, their runs on the right.
  *
  * The schedule is a timer inside this server, not launchd and not pmset. That
- * is the point: it cannot wake the Mac, and while the Mac is asleep the slot
- * simply passes rather than queueing up to fire on wake.
+ * is the point: it cannot wake the Mac, and while the Mac sleeps a slot simply
+ * passes rather than queueing up to fire on wake.
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import {
+  Plus, CheckCircle, XCircle, Clock, Play, Trash, FloppyDisk, CaretRight,
+} from '@phosphor-icons/react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useRunStream } from '@/lib/useRunStream.js';
-import { Spinner } from '@/components/ui.jsx';
-import { ago, plural } from '@/lib/format.js';
+import { useResizablePanel, useBreakpoint } from '@/lib/useResponsive.js';
+import { ago, plural, money4 } from '@/lib/format.js';
+import { cn } from '@/lib/utils';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const STEPS = [
-  { key: 'pull', label: 'Pull from Gong' },
-  { key: 'organize', label: 'Organize' },
-  { key: 'projects', label: 'Feed projects' },
-];
-
-function Field({ label, hint, children }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-[12px] font-medium">{label}</span>
-      {children}
-      {hint && <span className="mt-1 block text-[11px] text-[var(--faint)]">{hint}</span>}
-    </label>
-  );
-}
-
-const inputCls = `w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)]
-  px-3 py-2 text-[12.5px] outline-none focus:border-[var(--accent)]`;
-
-function Toggle({ on, onChange, label, hint }) {
-  return (
-    <div className="flex items-start gap-3">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        onClick={() => onChange(!on)}
-        className={`mt-0.5 h-[22px] w-[38px] flex-none rounded-full p-[3px] transition-colors
-          ${on ? 'bg-[var(--accent)]' : 'bg-[var(--surface-3)] border border-[var(--line)]'}`}
-      >
-        <span className={`block h-4 w-4 rounded-full bg-white transition-transform
-          ${on ? 'translate-x-4' : ''}`} />
-      </button>
-      <span>
-        <span className="block text-[12.5px] font-medium">{label}</span>
-        {hint && <span className="block text-[11px] text-[var(--faint)]">{hint}</span>}
-      </span>
-    </div>
-  );
-}
 
 export default function AutomationPage() {
-  const [cfg, setCfg] = useState(null);
-  const [runId, setRunId] = useState(null);
-  const [saved, setSaved] = useState(false);
-  const [steps, setSteps] = useState({});
+  const [schedules, setSchedules] = useState(null);
+  const [workflows, setWorkflows] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [draft, setDraft] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [activeRun, setActiveRun] = useState(null);
   const [log, setLog] = useState([]);
 
-  const run = useRunStream(runId, {
+  const { isCompact } = useBreakpoint();
+  const panel = useResizablePanel({
+    initial: 320, min: 240, max: 460, keepForMain: 380,
+    storageKey: 'warp.automation.split', enabled: !isCompact,
+  });
+
+  const run = useRunStream(activeRun, {
     onEvent: (e) => {
-      if (e.type === 'step') {
-        setSteps((s) => ({ ...s, [e.step]: 'on', ...doneBefore(e.step) }));
-        setLog((l) => [...l, { kind: 'step', text: e.message }]);
-      } else if (e.type === 'detail') {
-        setLog((l) => [...l, { kind: 'detail', text: e.message }]);
-      } else if (e.type === 'file') {
-        setLog((l) => [...l, { kind: 'file', text: e.name }]);
-      } else if (e.type === 'error') {
-        setLog((l) => [...l, { kind: 'error', text: e.message }]);
+      if (['step', 'detail', 'file', 'error', 'summary'].includes(e.type)) {
+        setLog((l) => [...l, e]);
       }
     },
-    onFinish: () => { setRunId(null); setSteps({}); load(); },
+    onFinish: () => { setActiveRun(null); load(); },
   });
 
   const load = useCallback(async () => {
     try {
-      const d = await fetch('/api/automation').then((r) => r.json());
-      setCfg(d);
-      if (!runId && d.active?.[0]) setRunId(d.active[0].id);
-      return d;
-    } catch { return null; }
-  }, [runId]);
+      const [s, w, r] = await Promise.all([
+        fetch('/api/schedules').then((x) => x.json()),
+        fetch('/api/workflows').then((x) => x.json()),
+        fetch('/api/runs').then((x) => x.json()),
+      ]);
+      setSchedules(s.schedules || []);
+      setWorkflows(w.workflows || []);
+      setRuns((r.runs || []).filter((x) => x.kind === 'automation'));
+      setSelected((cur) => cur || s.schedules?.[0]?.id || null);
+    } catch { setSchedules([]); }
+  }, []);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (runId) return;
+    if (activeRun) return;
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
-  }, [runId, load]);
+  }, [activeRun, load]);
 
-  const patch = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
+  useEffect(() => {
+    const s = (schedules || []).find((x) => x.id === selected);
+    setDraft(s ? { ...s } : null);
+  }, [selected, schedules]);
 
   const save = async () => {
-    const d = await fetch('/api/automation', {
+    await fetch('/api/schedules', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(draft),
+    });
+    await load();
+  };
+
+  const create = async () => {
+    if (!workflows.length) return;
+    const r = await fetch('/api/schedules', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        enabled: cfg.enabled, time: cfg.time, days: cfg.days,
-        daysBack: Number(cfg.daysBack) || 2,
-        graceMinutes: Number(cfg.graceMinutes) || 20,
-        organize: cfg.organize, organizeBy: cfg.organizeBy, organizeMode: cfg.organizeMode,
+        workflowId: workflows[0].id, name: 'New schedule',
+        enabled: false, time: '09:00', days: [1, 2, 3, 4, 5], graceMinutes: 20,
       }),
-    }).then((r) => r.json());
-    setCfg(d);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    }).then((x) => x.json());
+    await load();
+    setSelected(r.schedule?.id || null);
+  };
+
+  const remove = async () => {
+    await fetch('/api/schedules', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ delete: selected }),
+    });
+    setSelected(null);
+    await load();
   };
 
   const runNow = async () => {
-    setLog([]); setSteps({});
-    const d = await fetch('/api/automation/run', {
+    if (!draft?.workflowId) return;
+    setLog([]);
+    const r = await fetch(`/api/workflows/${draft.workflowId}`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ daysBack: Number(cfg?.daysBack) || 2 }),
-    }).then((r) => r.json());
-    if (d.id) setRunId(d.id);
+      body: JSON.stringify({ action: 'run' }),
+    }).then((x) => x.json());
+    if (r.runId) setActiveRun(r.runId);
+    else if (r.error) setLog([{ type: 'error', message: r.error }]);
   };
 
-  if (!cfg) return <div className="grid h-full place-items-center"><Spinner /></div>;
+  if (!schedules) {
+    return (
+      <div className="flex h-full">
+        <div className="w-[320px] flex-none border-r border-border p-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="mb-2 h-[58px] rounded-xl" />
+          ))}
+        </div>
+        <div className="flex-1 p-5"><Skeleton className="h-[320px] rounded-2xl" /></div>
+      </div>
+    );
+  }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[880px] space-y-4 p-4 sm:p-6">
+    <div className="flex h-full min-w-0 overflow-hidden">
+      {/* ---- left: schedules ------------------------------------------- */}
+      <aside
+        style={isCompact ? undefined : { width: panel.width }}
+        className={cn('flex flex-col border-r border-border bg-card',
+          isCompact ? 'w-[46%] min-w-[200px] flex-none' : 'flex-none')}
+      >
+        <div className="flex flex-none items-center justify-between border-b border-border px-3 py-2.5">
+          <span className="text-[12.5px] font-semibold">Schedules</span>
+          <Button size="sm" variant="outline" onClick={create} className="h-7 rounded-lg px-2">
+            <Plus size={12} weight="bold" /> New
+          </Button>
+        </div>
 
-        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-          <h2 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-[var(--accent)]">
-            Schedule
-          </h2>
-          <p className="mb-4 text-[12px] leading-relaxed text-[var(--muted)]">
-            The timer runs <strong>inside this server</strong>, not in launchd. It therefore
-            cannot wake your Mac, and while the Mac is asleep the slot simply passes —
-            nothing is queued up to fire on wake. If you are away past the grace window,
-            the day is recorded as missed and it waits for the next one.
-          </p>
-
-          <div className="mb-5 grid grid-cols-2 divide-[var(--line)] rounded-xl border
-                          border-[var(--line)] sm:grid-cols-4 sm:divide-x
-                          [&>*:nth-child(-n+2)]:border-b [&>*:nth-child(-n+2)]:border-[var(--line)]
-                          sm:[&>*]:border-b-0 [&>*:nth-child(odd)]:border-r
-                          [&>*:nth-child(odd)]:border-[var(--line)] sm:[&>*]:border-r-0">
-            <Stat label="Schedule" value={cfg.enabled ? `${cfg.time}` : 'Off'} />
-            <Stat label="Next run"
-                  value={cfg.nextRunAt ? new Date(cfg.nextRunAt).toLocaleString(undefined,
-                    { weekday: 'short', hour: '2-digit', minute: '2-digit' }) : '—'} />
-            <Stat label="Last run" value={cfg.lastRunAt ? ago(cfg.lastRunAt) : 'never'} />
-            <Stat label="Today"
-                  value={runId ? 'running' : cfg.alreadyHandled ? 'done' : cfg.missed ? 'missed' : 'idle'} />
-          </div>
-
-          <div className="space-y-5">
-            <Toggle
-              on={Boolean(cfg.enabled)}
-              onChange={(v) => patch('enabled', v)}
-              label="Run automatically"
-              hint="Needs this server to be running. Nothing is scheduled with the operating system, so your Mac is never woken."
-            />
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Field label="Time">
-                <input type="time" value={cfg.time || '09:00'}
-                       onChange={(e) => patch('time', e.target.value)} className={inputCls} />
-              </Field>
-              <Field label="Pull the last" hint="days of your calls">
-                <input type="number" min="1" max="30" value={cfg.daysBack ?? 2}
-                       onChange={(e) => patch('daysBack', e.target.value)} className={inputCls} />
-              </Field>
-              <Field label="Grace window" hint="minutes late it may still run">
-                <input type="number" min="0" max="240" value={cfg.graceMinutes ?? 20}
-                       onChange={(e) => patch('graceMinutes', e.target.value)} className={inputCls} />
-              </Field>
-            </div>
-
-            <div>
-              <span className="mb-1.5 block text-[12px] font-medium">Days</span>
-              <div className="flex flex-wrap gap-1.5">
-                {DAYS.map((d, i) => {
-                  const on = (cfg.days || []).includes(i);
-                  return (
-                    <button
-                      key={d}
-                      onClick={() => patch('days', on
-                        ? cfg.days.filter((x) => x !== i)
-                        : [...(cfg.days || []), i].sort())}
-                      className={`rounded-lg border px-3 py-1.5 text-[11.5px] font-medium transition-colors
-                        ${on ? 'border-transparent bg-[var(--accent)] text-white'
-                             : 'border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)]'}`}
-                    >
-                      {d}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="grid items-end gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="Group by">
-                <select value={cfg.organizeBy || 'customer'}
-                        onChange={(e) => patch('organizeBy', e.target.value)} className={inputCls}>
-                  <option value="customer">Customer</option>
-                  <option value="call">Call title</option>
-                </select>
-              </Field>
-              <Field label="How">
-                <select value={cfg.organizeMode || 'copy'}
-                        onChange={(e) => patch('organizeMode', e.target.value)} className={inputCls}>
-                  <option value="copy">Copy</option>
-                  <option value="link">Hardlink</option>
-                  <option value="move">Move</option>
-                </select>
-              </Field>
-              <Toggle on={Boolean(cfg.organize)} onChange={(v) => patch('organize', v)}
-                      label="Organize" hint="Group before feeding projects" />
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <button onClick={save}
-                      className="rounded-lg bg-[var(--accent)] px-4 py-2 text-[12.5px]
-                                 font-medium text-white">
-                Save schedule
-              </button>
-              <button onClick={runNow} disabled={Boolean(runId)}
-                      className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)]
-                                 px-4 py-2 text-[12.5px] disabled:opacity-40">
-                {runId ? 'Running…' : 'Run now'}
-              </button>
-              {saved && <span className="text-[12px] text-[var(--ok)]">Saved.</span>}
-            </div>
-          </div>
-        </section>
-
-        {(runId || log.length > 0) && (
-          <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-            <h2 className="mb-3 font-mono text-[11px] uppercase tracking-wider text-[var(--accent)]">
-              Pipeline
-            </h2>
-
-            <div className="mb-4 flex flex-wrap gap-2">
-              {STEPS.map((s) => (
-                <span key={s.key}
-                      className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11.5px]
-                        ${steps[s.key] === 'on'
-                          ? 'border-[var(--accent)] text-[var(--text)]'
-                          : steps[s.key] === 'done'
-                            ? 'border-[var(--ok)]/40 text-[var(--ok)]'
-                            : 'border-[var(--line)] text-[var(--faint)]'}`}>
-                  {steps[s.key] === 'on' ? <Spinner size={11} /> : <span>{steps[s.key] === 'done' ? '✓' : '·'}</span>}
-                  {s.label}
-                </span>
-              ))}
-            </div>
-
-            <div className="max-h-[260px] overflow-y-auto rounded-lg border border-[var(--line)]
-                            bg-[var(--surface-2)] p-3 font-mono text-[11px] leading-[1.75]">
-              {log.map((l, i) => (
-                <div key={i} className={
-                  l.kind === 'error' ? 'text-[var(--bad)]'
-                  : l.kind === 'step' ? 'mt-1.5 font-semibold text-[var(--text)]'
-                  : l.kind === 'file' ? 'text-[var(--faint)] pl-3'
-                  : 'text-[var(--muted)] pl-3'}>
-                  {l.kind === 'file' ? `· ${l.text}` : l.text}
-                </div>
-              ))}
-              {log.length === 0 && <span className="text-[var(--faint)]">Waiting…</span>}
-            </div>
-          </section>
-        )}
-
-        <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-          <h2 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-[var(--accent)]">
-            History
-          </h2>
-          <p className="mb-4 text-[12px] text-[var(--muted)]">
-            The last runs, including days that were skipped because the Mac was asleep.
-          </p>
-
-          {(cfg.history || []).length === 0 && (
-            <p className="py-6 text-center text-[12px] text-[var(--faint)]">Nothing has run yet.</p>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {schedules.length === 0 && (
+            <p className="p-3 text-[11.5px] text-muted-foreground">
+              Nothing scheduled. Create one, then point it at a workflow.
+            </p>
           )}
+          {schedules.map((s) => (
+            <button key={s.id} onClick={() => setSelected(s.id)}
+              className={cn('mb-1 flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-colors',
+                selected === s.id ? 'border-primary/40 bg-primary/8' : 'border-transparent hover:bg-muted')}>
+              {s.enabled
+                ? <CheckCircle size={14} weight="fill" className="flex-none text-ok" />
+                : <Clock size={14} weight="duotone" className="flex-none text-muted-foreground" />}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] font-medium">
+                  {s.name || s.workflow?.name || 'Schedule'}
+                </span>
+                <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                  {s.time} · {(s.days || []).map((d) => DAYS[d]).join(' ') || 'no days'}
+                </span>
+              </span>
+              <CaretRight size={11} className="flex-none text-muted-foreground" />
+            </button>
+          ))}
+        </div>
+      </aside>
 
-          <div className="divide-y divide-[var(--line-soft)]">
-            {(cfg.history || []).map((h, i) => (
-              <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-[12px]">
-                <span className={`h-1.5 w-1.5 flex-none rounded-full ${
-                  h.kind === 'ok' ? 'bg-[var(--ok)]'
-                  : h.kind === 'missed' ? 'bg-[var(--warn)]' : 'bg-[var(--bad)]'}`} />
-                <span className="flex-none font-mono text-[11px] text-[var(--faint)]">
-                  {new Date(h.at).toLocaleString(undefined,
-                    { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </span>
-                <span className="min-w-0 flex-1 text-[var(--muted)]">
-                  {h.kind === 'missed'
-                    ? 'Skipped — the Mac was asleep past the grace window'
-                    : `${plural(h.pulled, 'call')} · ${plural(h.organized, 'file')} organized · ${plural(h.projects, 'project')} updated`}
-                </span>
-                {h.trigger && (
-                  <span className="font-mono text-[10px] text-[var(--faint)]">{h.trigger}</span>
-                )}
-              </div>
-            ))}
+      {!isCompact && (
+        <div {...panel.handleProps}
+             className={cn('w-1 flex-none cursor-col-resize transition-colors hover:bg-primary/40',
+               panel.dragging && 'bg-primary/60')} />
+      )}
+
+      {/* ---- right: settings + logs ------------------------------------ */}
+      <section className="min-w-0 flex-1 overflow-y-auto">
+        {!draft ? (
+          <div className="grid h-full place-items-center p-8 text-center text-[12.5px] text-muted-foreground">
+            Pick a schedule, or create one.
           </div>
-        </section>
-      </div>
+        ) : (
+          <div className="space-y-3.5 p-5">
+            <Card className="rounded-2xl">
+              <CardContent className="p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-[13.5px] font-semibold">Schedule</h2>
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="outline" onClick={runNow}
+                            disabled={Boolean(activeRun)} className="rounded-lg">
+                      <Play size={12} weight="fill" /> {activeRun ? 'Running…' : 'Run now'}
+                    </Button>
+                    <Button size="sm" onClick={save} className="rounded-lg">
+                      <FloppyDisk size={12} weight="duotone" /> Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={remove}
+                            className="rounded-lg text-bad hover:text-bad">
+                      <Trash size={12} weight="duotone" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="mb-1.5 block text-[12px] font-medium">Name</Label>
+                    <Input value={draft.name || ''} className="rounded-xl"
+                           onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block text-[12px] font-medium">Workflow</Label>
+                    <select value={draft.workflowId}
+                            onChange={(e) => setDraft({ ...draft, workflowId: e.target.value })}
+                            className="h-9 w-full rounded-xl border border-input bg-transparent px-3 text-[13px]">
+                      {workflows.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block text-[12px] font-medium">Time</Label>
+                    <Input type="time" value={draft.time} className="rounded-xl"
+                           onChange={(e) => setDraft({ ...draft, time: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block text-[12px] font-medium">Grace window</Label>
+                    <Input type="number" value={draft.graceMinutes} className="rounded-xl"
+                           onChange={(e) => setDraft({ ...draft, graceMinutes: Number(e.target.value) })} />
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <Label className="mb-1.5 block text-[12px] font-medium">Days</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DAYS.map((d, i) => {
+                      const on = (draft.days || []).includes(i);
+                      return (
+                        <button key={d} onClick={() => setDraft({
+                          ...draft,
+                          days: on ? draft.days.filter((x) => x !== i) : [...draft.days, i].sort(),
+                        })}
+                        className={cn('rounded-lg border px-2.5 py-1 text-[11.5px] font-medium',
+                          on ? 'border-transparent bg-primary text-primary-foreground'
+                             : 'border-border text-muted-foreground')}>
+                          {d}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <label className="mt-3 flex items-center gap-2 text-[12.5px]">
+                  <input type="checkbox" checked={Boolean(draft.enabled)}
+                         onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })}
+                         className="accent-primary" />
+                  Run automatically
+                  <span className="text-[11px] text-muted-foreground">
+                    · needs this server running; your Mac is never woken
+                  </span>
+                </label>
+
+                {draft.nextRunAt && (
+                  <p className="mt-2 font-mono text-[10.5px] text-muted-foreground">
+                    next {new Date(draft.nextRunAt).toLocaleString()}
+                    {draft.missed ? ' · last slot was missed' : ''}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* ---- live log --------------------------------------------- */}
+            {(activeRun || log.length > 0) && (
+              <Card className="rounded-2xl">
+                <CardContent className="p-5">
+                  <h2 className="mb-2 text-[13px] font-semibold">
+                    {activeRun ? 'Running' : 'Last run'}
+                  </h2>
+                  <div className="max-h-[220px] overflow-y-auto rounded-xl border border-border
+                                  bg-muted p-3 font-mono text-[11px] leading-[1.75]">
+                    {log.map((l, i) => (
+                      <div key={i} className={cn(
+                        l.type === 'error' ? 'text-bad'
+                        : l.type === 'step' ? 'mt-1.5 font-semibold text-foreground'
+                        : l.type === 'file' ? 'pl-3 text-muted-foreground'
+                        : 'pl-3 text-muted-foreground')}>
+                        {l.type === 'summary'
+                          ? JSON.stringify(l.result)
+                          : l.type === 'file' ? `· ${l.name}` : (l.message || '')}
+                      </div>
+                    ))}
+                    {log.length === 0 && <span className="text-muted-foreground">Waiting…</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ---- history ---------------------------------------------- */}
+            <Card className="rounded-2xl">
+              <CardContent className="p-5">
+                <h2 className="mb-3 text-[13px] font-semibold">Recent automation runs</h2>
+                {runs.length === 0 && (
+                  <p className="py-4 text-[12px] text-muted-foreground">Nothing has run yet.</p>
+                )}
+                <div className="divide-y divide-border">
+                  {runs.slice(0, 12).map((r) => (
+                    <div key={r.id} className="flex items-center gap-2.5 py-2 text-[12px]">
+                      {r.status === 'done'
+                        ? <CheckCircle size={14} weight="fill" className="flex-none text-ok" />
+                        : r.status === 'running'
+                          ? <Clock size={14} weight="duotone" className="flex-none text-primary" />
+                          : <XCircle size={14} weight="fill" className="flex-none text-bad" />}
+                      <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                        {r.label || 'Run'}
+                        {r.summary?.pulled != null &&
+                          ` · ${plural(r.summary.pulled, 'call')} · ${plural(r.summary.organized || 0, 'file')}`}
+                      </span>
+                      {r.summary?.costUsd != null && (
+                        <span className="flex-none font-mono text-[10px] text-muted-foreground">
+                          {money4(r.summary.costUsd)}
+                        </span>
+                      )}
+                      <span className="flex-none font-mono text-[10px] text-muted-foreground">
+                        {ago(r.endedAt || r.startedAt)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Link href="/applications/automation?tab=configuration"
+                      className="mt-3 inline-block text-[12px] text-primary no-underline hover:underline">
+                  Automation settings →
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </section>
     </div>
   );
-}
-
-function Stat({ label, value }) {
-  return (
-    <div className="px-4 py-3">
-      <div className="text-[13px] font-medium">{value}</div>
-      <div className="font-mono text-[10px] uppercase tracking-wider text-[var(--faint)]">
-        {label}
-      </div>
-    </div>
-  );
-}
-
-/** Steps are sequential, so starting one means everything before it finished. */
-function doneBefore(step) {
-  const order = STEPS.map((s) => s.key);
-  const i = order.indexOf(step);
-  return Object.fromEntries(order.slice(0, Math.max(i, 0)).map((k) => [k, 'done']));
 }

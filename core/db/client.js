@@ -103,6 +103,50 @@ CREATE TABLE IF NOT EXISTS usage (
 );
 CREATE INDEX IF NOT EXISTS usage_at ON usage (at);
 
+CREATE TABLE IF NOT EXISTS workflows (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  skill TEXT,
+  instruction TEXT NOT NULL DEFAULT '',
+  scope TEXT,
+  outputs TEXT,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS schedules (
+  id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 0,
+  time TEXT NOT NULL DEFAULT '09:00',
+  days TEXT NOT NULL DEFAULT '[1,2,3,4,5]',
+  grace_minutes INTEGER NOT NULL DEFAULT 20,
+  last_slot TEXT,
+  last_run_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sched_workflow ON schedules (workflow_id);
+
+CREATE TABLE IF NOT EXISTS run_files (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL,
+  path TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS rf_run ON run_files (run_id);
+
+CREATE TABLE IF NOT EXISTS graphs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  policy TEXT,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS automation_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at INTEGER NOT NULL,

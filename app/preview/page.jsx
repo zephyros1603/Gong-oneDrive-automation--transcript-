@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import { CopyButton, Markdown, Empty, Spinner } from '@/components/ui.jsx';
+import { CopyButton, Markdown, Empty, Spinner } from '@/components/common.jsx';
 import SidebarLayout, { SidebarToggle } from '@/components/SidebarLayout.jsx';
 import { kb, stripName, ago } from '@/lib/format.js';
 
@@ -76,7 +76,7 @@ function PreviewInner() {
             placeholder="Filter files…"
             className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)]
                        px-2.5 py-2 text-[12.5px] outline-none placeholder:text-[var(--faint)]
-                       focus:border-[var(--accent)]"
+                       focus:border-[var(--brand)]"
           />
         </div>
 
@@ -101,7 +101,7 @@ function PreviewInner() {
                   key={f.path}
                   onClick={() => open(f.path)}
                   className={`block w-full rounded-lg px-2 py-1.5 text-left transition-colors
-                    ${current === f.path ? 'bg-[var(--accent)]/15' : 'hover:bg-[var(--surface-2)]'}`}
+                    ${current === f.path ? 'bg-[var(--brand)]/15' : 'hover:bg-[var(--surface-2)]'}`}
                 >
                   <span className="block truncate text-[12px]">{stripName(f.name)}</span>
                   <span className="block font-mono text-[10px] text-[var(--faint)]">
@@ -148,10 +148,10 @@ function PreviewInner() {
 
             {body?.binary && (
               <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-2)] p-5
-                              text-center text-[12.5px] text-[var(--muted)]">
+                              text-center text-[12.5px] text-[var(--text-muted)]">
                 This is a Word document and cannot be rendered here.
                 <a href={`/api/file?path=${encodeURIComponent(current)}&raw=1`} download
-                   className="ml-2 text-[var(--accent)] no-underline">Download it</a>
+                   className="ml-2 text-[var(--brand)] no-underline">Download it</a>
               </div>
             )}
 

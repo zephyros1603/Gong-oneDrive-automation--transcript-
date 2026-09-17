@@ -103,6 +103,65 @@ export const usage = sqliteTable('usage', {
   cancelled: integer('cancelled', { mode: 'boolean' }).notNull().default(false),
 }, (t) => [index('usage_at').on(t.at)]);
 
+/**
+ * A reusable recipe: what to run, over which inputs, producing what.
+ *
+ * Authored and tested in Workbench, scheduled from Automation, executed by one
+ * `runWorkflow()` — so what was tested is literally what runs. Kept separate
+ * from `schedules` so one definition can run daily for one customer and weekly
+ * for another without the prompt being copy-pasted and then drifting.
+ */
+export const workflows = sqliteTable('workflows', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  skill: text('skill'),                       // installed skill, or null
+  instruction: text('instruction').notNull().default(''),
+  scope: text('scope'),                       // JSON {projectId, sources[], window}
+  outputs: text('outputs'),                   // JSON {dir, formats[]}
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/** When a workflow runs. Many schedules may point at one workflow. */
+export const schedules = sqliteTable('schedules', {
+  id: text('id').primaryKey(),
+  workflowId: text('workflow_id').notNull(),
+  name: text('name').notNull().default(''),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+  time: text('time').notNull().default('09:00'),
+  days: text('days').notNull().default('[1,2,3,4,5]'),   // JSON, 0 = Sunday
+  graceMinutes: integer('grace_minutes').notNull().default(20),
+  lastSlot: text('last_slot'),                // YYYY-MM-DD already handled
+  lastRunAt: integer('last_run_at'),
+  createdAt: integer('created_at').notNull(),
+}, (t) => [index('sched_workflow').on(t.workflowId)]);
+
+/** Which transcripts a run actually consumed. */
+export const runFiles = sqliteTable('run_files', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  runId: text('run_id').notNull(),
+  path: text('path').notNull(),
+}, (t) => [index('rf_run').on(t.runId)]);
+
+/**
+ * A saved graph: a name plus a policy describing what belongs in it.
+ *
+ * The tree is never stored — it is computed from the policy every time it is
+ * read. That is what makes a graph stay current as transcripts arrive and
+ * documents are generated, without anything having to remember to update it.
+ */
+export const graphs = sqliteTable('graphs', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  policy: text('policy'),                     // JSON, see core/graph/build.js
+  builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 /** Scheduler outcomes, including the days that were skipped. */
 export const automationHistory = sqliteTable('automation_history', {
   id: integer('id').primaryKey({ autoIncrement: true }),

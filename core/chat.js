@@ -58,7 +58,11 @@ export async function startChatRun(body) {
   if (body.actionId && !action) throw new Error(`unknown action: ${body.actionId}`);
 
   const message = String(body.message || '').trim();
-  if (!action && !message) throw new Error('type something or pick a skill');
+
+  // A workflow names a skill directly rather than going through a Workbench
+  // action button, so both routes into a run end up in the same place.
+  const skillName = action ? action.skill : (body.skillName || '');
+  if (!action && !skillName && !message) throw new Error('type something or pick a skill');
 
   const attached = (body.files || []).filter((f) => library.isReadable(f));
 
@@ -87,7 +91,7 @@ export async function startChatRun(body) {
   const outputDir = resolveOutputDir(body.outputDir, settings);
   mkdirSync(outputDir, { recursive: true });
 
-  const label = action ? action.label : 'Chat';
+  const label = action ? action.label : (body.label || (skillName ? skillName : 'Chat'));
   const instruction = action
     ? [action.instruction, message].filter(Boolean).join('. ')
     : message;
@@ -136,7 +140,7 @@ export async function startChatRun(body) {
   });
 
   const started = await engine.run({
-    skill: action ? action.skill : '',
+    skill: skillName,
     instruction,
     outputDir,
     files,

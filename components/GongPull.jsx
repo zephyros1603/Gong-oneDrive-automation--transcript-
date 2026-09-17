@@ -1,7 +1,11 @@
 'use client';
 
 /**
- * Pull — fetch transcripts out of Gong.
+ * components/GongPull.jsx — fetch transcripts out of Gong.
+ *
+ * Lives inside the Gong application's Data tab rather than as a top-level
+ * page: pulling is something you do *to* a configured source, so it belongs
+ * beside that source's credentials, not in the primary navigation.
  *
  * Three stages that replace each other: the form, the live run, the summary.
  * The vanilla version faded between them with a hard-coded 280ms setTimeout
@@ -11,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PullScene from '@/components/PullScene.jsx';
-import { Spinner, Pill } from '@/components/ui.jsx';
+import { Spinner, Pill } from '@/components/common.jsx';
 import { readEvents } from '@/lib/useRunStream.js';
 import { plural } from '@/lib/format.js';
 
@@ -29,7 +33,7 @@ const STEPS = [
 ];
 
 const inputCls = `w-full rounded-lg border border-[var(--line)] bg-[var(--surface-2)]
-  px-3 py-2 text-[12.5px] outline-none focus:border-[var(--accent)]`;
+  px-3 py-2 text-[12.5px] outline-none focus:border-[var(--brand)]`;
 
 function Field({ label, hint, children, wide = false }) {
   return (
@@ -41,7 +45,7 @@ function Field({ label, hint, children, wide = false }) {
   );
 }
 
-export default function PullPage() {
+export default function GongPull() {
   const [cfg, setCfg] = useState(null);
   const [mode, setMode] = useState('me');
   const [stage, setStage] = useState('form');      // form | running | done
@@ -198,15 +202,15 @@ export default function PullPage() {
   const byDay = groupByDay(rows);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-[880px] space-y-4 p-4 sm:p-6">
+    <div>
+      <div className="space-y-4">
 
         {/* ---------------------------------------------------------- form */}
         {stage === 'form' && (
           <div className="stage-in">
             <section className="mb-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
               <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--accent)]">
+                <h2 className="font-mono text-[11px] uppercase tracking-wider text-[var(--brand)]">
                   Session
                 </h2>
                 <button onClick={() => runTest(false)} disabled={testing}
@@ -227,7 +231,7 @@ export default function PullPage() {
                       <span className="w-[80px] flex-none font-mono text-[11px] text-[var(--faint)]">
                         {c.step}
                       </span>
-                      <span className="flex-1 text-[var(--muted)]">{c.detail}</span>
+                      <span className="flex-1 text-[var(--text-muted)]">{c.detail}</span>
                     </div>
                   ))}
                   {test.cookie?.cellExpires && (
@@ -258,7 +262,7 @@ export default function PullPage() {
             </section>
 
             <section className="mb-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-              <h2 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-[var(--accent)]">
+              <h2 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-[var(--brand)]">
                 What to pull
               </h2>
 
@@ -267,7 +271,7 @@ export default function PullPage() {
                 {MODES.map((m) => (
                   <button key={m.id} onClick={() => setMode(m.id)}
                           className={`min-w-[96px] flex-1 rounded-[7px] px-3 py-2 text-[12.5px] font-medium
-                            ${mode === m.id ? 'bg-[var(--accent)] text-white' : 'text-[var(--muted)]'}`}>
+                            ${mode === m.id ? 'bg-[var(--brand)] text-white' : 'text-[var(--text-muted)]'}`}>
                     {m.label}
                   </button>
                 ))}
@@ -319,12 +323,12 @@ export default function PullPage() {
               <div className="mt-4 flex flex-wrap items-center gap-4">
                 <label className="flex items-center gap-2 text-[12px]">
                   <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)}
-                         className="accent-[var(--accent)]" />
+                         className="accent-[var(--brand)]" />
                   Dry run — show paths, download nothing
                 </label>
                 <label className="flex items-center gap-2 text-[12px]">
                   <input type="checkbox" checked={saveBack} onChange={(e) => setSaveBack(e.target.checked)}
-                         className="accent-[var(--accent)]" />
+                         className="accent-[var(--brand)]" />
                   Save these values back to gong.env
                 </label>
               </div>
@@ -335,7 +339,7 @@ export default function PullPage() {
               )}
 
               <button onClick={start}
-                      className="mt-4 rounded-lg bg-[var(--accent)] px-5 py-2.5 text-[13px]
+                      className="mt-4 rounded-lg bg-[var(--brand)] px-5 py-2.5 text-[13px]
                                  font-medium text-white">
                 Pull transcripts
               </button>
@@ -355,7 +359,7 @@ export default function PullPage() {
               {STEPS.map((s) => (
                 <span key={s.key}
                       className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11.5px]
-                        ${steps[s.key] === 'on' ? 'border-[var(--accent)] text-[var(--text)]'
+                        ${steps[s.key] === 'on' ? 'border-[var(--brand)] text-[var(--text)]'
                           : steps[s.key] === 'done' ? 'border-[var(--ok)]/40 text-[var(--ok)]'
                           : 'border-[var(--line)] text-[var(--faint)]'}`}>
                   {steps[s.key] === 'done' ? '✓' : steps[s.key] === 'on' ? <Spinner size={11} /> : '·'}
@@ -378,7 +382,7 @@ export default function PullPage() {
         {stage === 'done' && summary && (
           <>
             <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-              <h2 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-[var(--accent)]">
+              <h2 className="mb-4 font-mono text-[11px] uppercase tracking-wider text-[var(--brand)]">
                 {summary.dryRun ? 'Dry run' : 'Complete'}
               </h2>
 
@@ -415,7 +419,7 @@ export default function PullPage() {
 
 function Stat({ label, value, tone = 'muted' }) {
   const colour = { ok: 'text-[var(--ok)]', warn: 'text-[var(--warn)]',
-                   bad: 'text-[var(--bad)]', muted: 'text-[var(--muted)]' }[tone];
+                   bad: 'text-[var(--bad)]', muted: 'text-[var(--text-muted)]' }[tone];
   return (
     <div className="px-4 py-3 text-center">
       <div className={`text-[18px] font-semibold ${colour}`}>{value}</div>
@@ -448,7 +452,7 @@ function DayList({ byDay }) {
                 </span>
                 <a href={r.path ? `/preview?path=${encodeURIComponent(r.path)}` : undefined}
                    className="min-w-0 flex-1 truncate text-[12px] text-[var(--text)] no-underline
-                              hover:text-[var(--accent)]" title={r.path}>
+                              hover:text-[var(--brand)]" title={r.path}>
                   {r.title}
                 </a>
                 {r.note && (
@@ -466,10 +470,10 @@ function DayList({ byDay }) {
 function Organizer({ org, setOrg, run, busy, result }) {
   return (
     <section className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-5">
-      <h2 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-[var(--accent)]">
+      <h2 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-[var(--brand)]">
         Organize
       </h2>
-      <p className="mb-4 text-[12px] text-[var(--muted)]">
+      <p className="mb-4 text-[12px] text-[var(--text-muted)]">
         Downloads are filed by day. This builds a second tree grouped by customer — which is
         what the Projects tab reads.
       </p>
@@ -505,7 +509,7 @@ function Organizer({ org, setOrg, run, busy, result }) {
                 className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)]
                            px-4 py-2 text-[12.5px]">Preview</button>
         <button onClick={() => run(false)} disabled={busy}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-[12.5px]
+                className="rounded-lg bg-[var(--brand)] px-4 py-2 text-[12.5px]
                            font-medium text-white">
           {busy ? 'Working…' : 'Organize'}
         </button>

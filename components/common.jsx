@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * components/ui.jsx — the small shared pieces.
+ * components/common.jsx — the small shared pieces.
  *
  * Each of these replaces something the vanilla build had two or three copies
  * of: the copy button, the splitter, the markdown block, the email box, the
@@ -31,7 +31,7 @@ export const TickIcon = (p) => (
 );
 
 export const Spinner = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--accent)"
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="var(--brand)"
        strokeWidth="2.5" className="animate-spin">
     <path d="M21 12a9 9 0 1 1-6.2-8.5" strokeLinecap="round" />
   </svg>
@@ -60,8 +60,8 @@ export function CopyButton({ text, label = 'Copy', className = '', title }) {
       title={title || label}
       className={`inline-flex items-center gap-1.5 rounded-md border border-[var(--line)]
         bg-[var(--surface-2)] px-2.5 py-1.5 text-[11.5px] font-medium
-        text-[var(--muted)] transition-colors hover:text-[var(--text)]
-        hover:border-[var(--accent)] ${className}`}
+        text-[var(--text-muted)] transition-colors hover:text-[var(--text)]
+        hover:border-[var(--brand)] ${className}`}
     >
       {done ? <TickIcon /> : <CopyIcon />}
       {done ? 'Copied' : label}
@@ -156,7 +156,7 @@ export function DocCard({ file }) {
   return (
     <div className="mt-2 overflow-hidden rounded-[10px] border border-[var(--line)] bg-[var(--surface-2)]">
       <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)"
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--brand)"
              strokeWidth="1.8" className="flex-none">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <path d="M14 2v6h6" />
@@ -169,7 +169,7 @@ export function DocCard({ file }) {
           href={`/api/file?path=${encodeURIComponent(file.path)}&raw=1`}
           download
           className="rounded-md border border-[var(--line)] px-2 py-1 text-[11px]
-                     text-[var(--muted)] no-underline hover:text-[var(--text)]"
+                     text-[var(--text-muted)] no-underline hover:text-[var(--text)]"
         >
           Download
         </a>
@@ -196,8 +196,8 @@ export function Empty({ children }) {
 
 export function Pill({ tone = 'default', children, onRemove, title }) {
   const tones = {
-    default: 'border-[var(--line)] bg-[var(--surface-3)] text-[var(--muted)]',
-    accent: 'border-[var(--accent)]/40 bg-[var(--accent)]/12 text-[var(--accent)]',
+    default: 'border-[var(--line)] bg-[var(--surface-3)] text-[var(--text-muted)]',
+    accent: 'border-[var(--brand)]/40 bg-[var(--brand)]/12 text-[var(--brand)]',
     warn: 'border-[var(--warn)]/40 bg-[var(--warn)]/12 text-[var(--warn)]',
     bad: 'border-[var(--bad)]/40 bg-[var(--bad)]/12 text-[var(--bad)]',
     ok: 'border-[var(--ok)]/40 bg-[var(--ok)]/12 text-[var(--ok)]',

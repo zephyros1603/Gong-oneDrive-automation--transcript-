@@ -1,142 +1,270 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
 /**
- * The palette from the vanilla build, carried over unchanged. The tokens are
- * declared as Tailwind v4 theme variables so `bg-surface` and `text-muted`
- * work, and also kept as plain custom properties because the SVG scene on the
- * Pull tab needs to read them from CSS.
+ * Warp — the design system.
  *
- * Dark is the base and light is the override, which is the way round the
- * original was written — this app is looked at in a dark editor all day.
+ * Two vocabularies live here on purpose.
+ *
+ *   1. shadcn's semantic names (--background, --card, --primary, --border …)
+ *      are the source of truth. Every shadcn component reads these, and they
+ *      are what new code should use.
+ *
+ *   2. The original palette names (--bg, --surface, --line, --brand …) are
+ *      kept as *aliases* onto the first set, so the pages written before this
+ *      migration keep working untouched. Delete an alias once its last reader
+ *      is gone.
+ *
+ * Two of the original names had to be renamed before this could work, because
+ * they meant something different from shadcn's identically-named tokens:
+ *
+ *   --muted   was grey *text*    → now --text-muted (shadcn's --muted is a surface)
+ *   --accent  was the brand purple → now --brand     (shadcn's --accent is a hover fill)
+ *
+ * Light is the base and dark is a `.dark` class on <html>, which is what
+ * shadcn assumes and what makes a real user-facing toggle possible. The old
+ * build had this the other way round with a prefers-color-scheme query, which
+ * could never be overridden by a button.
  */
-@theme {
-  --color-bg: #0b0d12;
-  --color-surface: #12151d;
-  --color-surface-2: #171b25;
-  --color-surface-3: #1c2130;
-  --color-line: #252a38;
-  --color-line-soft: #1d222e;
-  --color-text: #e7eaf3;
-  --color-muted: #8f97ad;
-  --color-faint: #5f6779;
-  --color-accent: #7c6cf5;
-  --color-accent-2: #4dd6c1;
-  --color-ok: #48c78e;
-  --color-warn: #e9b949;
-  --color-bad: #ef5f6b;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-}
+@custom-variant dark (&:is(.dark *));
 
 :root {
-  --bg: #0b0d12;
-  --surface: #12151d;
-  --surface-2: #171b25;
-  --surface-3: #1c2130;
-  --line: #252a38;
-  --line-soft: #1d222e;
-  --text: #e7eaf3;
-  --muted: #8f97ad;
-  --faint: #5f6779;
-  --accent: #7c6cf5;
-  --accent-2: #4dd6c1;
-  --accent-soft: #7c6cf522;
+  /* ---- shadcn semantics: light ------------------------------------------ */
+  --background: #f6f7f9;
+  --foreground: #14161d;
+
+  --card: #ffffff;
+  --card-foreground: #14161d;
+  --popover: #ffffff;
+  --popover-foreground: #14161d;
+
+  --primary: #5b4fd6;
+  --primary-foreground: #ffffff;
+
+  --secondary: #eef0f4;
+  --secondary-foreground: #14161d;
+
+  --muted: #f1f3f6;
+  --muted-foreground: #626b7c;
+
+  --accent: #eceef3;
+  --accent-foreground: #14161d;
+
+  --destructive: #d6455b;
+  --destructive-foreground: #ffffff;
+
+  --border: #e3e6ed;
+  --input: #e3e6ed;
+  --ring: #5b4fd6;
+
+  /* Generous by design — the rounded, soft-cornered look is most of what
+     reads as "premium" here, more than any colour choice. */
+  --radius: 0.625rem;
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #14161d;
+  --sidebar-border: #e8eaf0;
+  --sidebar-accent: #f3f4f8;
+
+  /* ---- status ----------------------------------------------------------- */
+  --ok: #17935f;
+  --warn: #b7791f;
+  --bad: #d6455b;
+  --info: #2b6cb0;
+
+  /* ---- legacy aliases — existing pages read these ------------------------ */
+  --bg: var(--background);
+  --surface: var(--card);
+  --surface-2: #f2f4f7;
+  --surface-3: #e9ecf2;
+  --line: var(--border);
+  --line-soft: #edeff4;
+  --text: var(--foreground);
+  --text-muted: var(--muted-foreground);
+  --faint: #8b93a3;
+  --brand: var(--primary);
+  --accent-2: #0d9488;
+  --brand-soft: color-mix(in oklab, var(--primary) 12%, transparent);
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+
+  color-scheme: light;
+}
+
+.dark {
+  --background: #0b0d12;
+  --foreground: #e7eaf3;
+
+  --card: #12151d;
+  --card-foreground: #e7eaf3;
+  --popover: #171b25;
+  --popover-foreground: #e7eaf3;
+
+  --primary: #7c6cf5;
+  --primary-foreground: #ffffff;
+
+  --secondary: #1c2130;
+  --secondary-foreground: #e7eaf3;
+
+  --muted: #171b25;
+  --muted-foreground: #8f97ad;
+
+  --accent: #1c2130;
+  --accent-foreground: #e7eaf3;
+
+  --destructive: #ef5f6b;
+  --destructive-foreground: #ffffff;
+
+  --border: #252a38;
+  --input: #252a38;
+  --ring: #7c6cf5;
+
+  --sidebar: #0f1219;
+  --sidebar-foreground: #e7eaf3;
+  --sidebar-border: #1f2431;
+  --sidebar-accent: #171b25;
+
   --ok: #48c78e;
   --warn: #e9b949;
   --bad: #ef5f6b;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+  --info: #5aa9e6;
+
+  --surface-2: #171b25;
+  --surface-3: #1c2130;
+  --line-soft: #1d222e;
+  --faint: #5f6779;
+  --accent-2: #4dd6c1;
+
   color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #eef0f5; --surface: #fff; --surface-2: #f7f8fc; --surface-3: #eef0f7;
-    --line: #dfe2ec; --line-soft: #e9ecf3; --text: #1a1d27; --muted: #5f6779;
-    --faint: #8f97ad; --accent-soft: #7c6cf518;
-    color-scheme: light;
-  }
+/**
+ * Tailwind v4 keeps its theme in CSS. `inline` means the utilities resolve to
+ * the variable rather than a copy of its value, so `bg-card` follows the theme
+ * when `.dark` flips — which is the entire point.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 13px/1.5 var(--sans);
+  background: var(--background);
+  color: var(--foreground);
+  font: 12.5px/1.45 var(--sans);
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 
   /* An app shell, not a document: the panes scroll, the page does not. The
      cost is that anything wider than the window is clipped and unreachable
-     rather than scrolled to — which is exactly how the six-tab nav lost its
-     last tab — so the shell is pinned to the viewport width and everything
-     inside it has to cope. `min-width: 0` is the part that lets flex children
-     shrink below their content instead of pushing the page wider. */
+     rather than scrolled to — which is how the six-tab nav once lost its last
+     tab — so the shell is pinned to the viewport width and everything inside
+     it has to cope. `min-width: 0` is what lets flex children shrink below
+     their content instead of pushing the page wider. */
   overflow: hidden;
   width: 100%;
   max-width: 100vw;
   min-width: 0;
 }
 
+button { font: inherit; cursor: pointer; }
+
 /* Long unbroken strings — absolute paths, ids, URLs — are the usual cause of
    a pane refusing to shrink. */
 .break-anywhere { overflow-wrap: anywhere; word-break: break-word; }
-button { font: inherit; cursor: pointer; }
 
-::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--muted-foreground) 28%, transparent);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  background-clip: padding-box;
+}
 ::-webkit-scrollbar-track { background: transparent; }
+
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+h1, h2, h3, h4, h5 { letter-spacing: -0.018em; }
 
 /* ---------------------------------------------------------------------------
    Rendered markdown.
-   Ported from md.js's MD_STYLES, which each page used to inject at runtime.
    --------------------------------------------------------------------------- */
-.md { font-size: 13px; line-height: 1.65; }
+.md { font-size: 12.5px; line-height: 1.6; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
-.md h1, .md h2, .md h3, .md h4 {
-  margin: 1.4em 0 .5em; font-weight: 640; line-height: 1.3;
-}
-.md h1 { font-size: 19px; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
-.md h2 { font-size: 16px; border-bottom: 1px solid var(--line-soft); padding-bottom: .25em; }
-.md h3 { font-size: 14px; }
-.md h4 { font-size: 13px; color: var(--muted); }
+.md h1, .md h2, .md h3, .md h4 { margin: 1.4em 0 .5em; font-weight: 640; line-height: 1.3; }
+.md h1 { font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: .3em; }
+.md h2 { font-size: 14.5px; border-bottom: 1px solid var(--line-soft); padding-bottom: .25em; }
+.md h3 { font-size: 13px; }
+.md h4 { font-size: 12.5px; color: var(--muted-foreground); }
 .md p { margin: .7em 0; }
 .md ul, .md ol { margin: .7em 0; padding-left: 1.5em; }
 .md li { margin: .25em 0; }
-.md a { color: var(--accent); text-decoration: none; }
+.md a { color: var(--primary); text-decoration: none; }
 .md a:hover { text-decoration: underline; }
 .md code {
-  font: 11.5px var(--mono); background: var(--surface-3);
-  padding: .15em .4em; border-radius: 4px;
+  font: 11.5px var(--mono); background: var(--muted);
+  padding: .15em .4em; border-radius: 5px;
 }
 .md pre {
-  background: var(--surface-3); border: 1px solid var(--line);
-  border-radius: 8px; padding: 11px 13px; overflow-x: auto; margin: .8em 0;
+  background: var(--muted); border: 1px solid var(--border);
+  border-radius: 10px; padding: 11px 13px; overflow-x: auto; margin: .8em 0;
 }
 .md pre code { background: none; padding: 0; font-size: 11.5px; }
 .md blockquote {
   margin: .8em 0; padding: .1em 0 .1em 13px;
-  border-left: 3px solid var(--line); color: var(--muted);
+  border-left: 3px solid var(--border); color: var(--muted-foreground);
 }
 .md table { border-collapse: collapse; margin: .9em 0; font-size: 12.5px; width: 100%; }
-.md th, .md td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; }
-.md th { background: var(--surface-2); font-weight: 600; }
-.md hr { border: none; border-top: 1px solid var(--line); margin: 1.4em 0; }
+.md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.md th { background: var(--muted); font-weight: 600; }
+.md hr { border: none; border-top: 1px solid var(--border); margin: 1.4em 0; }
 .md img { max-width: 100%; }
-
-/* Focus ring, once, rather than per-component. */
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
-  }
-}
 
 /* ---------------------------------------------------------------------------
    The Pull progress scene.
@@ -166,3 +294,24 @@ button { font: inherit; cursor: pointer; }
   to   { opacity: 1; transform: none; }
 }
 .stage-in { animation: gong-fade .25s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* Application tiles enter with a stagger. Written by hand rather than with
+   utility classes because `fill-mode-backwards` holds an element at the
+   animation's opening frame — invisible — whenever the animation does not
+   actually run, which is exactly what reduced-motion does to it. */
+@keyframes tile-in {
+  from { opacity: 0; transform: scale(.96) translateY(3px); }
+  to   { opacity: 1; transform: none; }
+}
+.app-tile-in { animation: tile-in .28s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .app-tile-in { animation: none; opacity: 1; transform: none; }
+}

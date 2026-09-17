@@ -8,6 +8,7 @@
  */
 
 import { spawn, execSync } from 'node:child_process';
+import { memo } from './core/cache.js';
 import {
   readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync, statSync,
 } from 'node:fs';
@@ -300,7 +301,19 @@ export function cancelAll() {
  * is the Claude Code session that may be editing this very project. So each
  * match is classified and the destructive ones are opt-in.
  */
+/**
+ * Find every Claude Code CLI process on this machine and say what each one is.
+ *
+ * Memoised for a second because the implementation is `execSync('/bin/ps')`,
+ * which **blocks the event loop** — measured at 42ms. Three pollers were each
+ * paying that separately, and while any of them ran, every other request in
+ * the app was stalled. That was the lag.
+ */
 export function scanClaudeProcesses() {
+  return memo('claude:processes', 1000, scanClaudeProcessesUncached);
+}
+
+export function scanClaudeProcessesUncached() {
   let out = '';
   try {
     out = execSync('/bin/ps -axo pid=,ppid=,etime=,command=', {

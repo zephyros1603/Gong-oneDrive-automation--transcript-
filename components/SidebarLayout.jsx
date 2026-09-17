@@ -23,7 +23,7 @@ export function SidebarToggle({ onClick, label = 'Show list' }) {
       title={label}
       aria-label={label}
       className="grid h-8 w-8 flex-none place-items-center rounded-lg border
-                 border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)]
+                 border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-muted)]
                  hover:text-[var(--text)] lg:hidden"
     >
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -85,7 +85,7 @@ export default function SidebarLayout({
         <div
           {...panel.handleProps}
           className={`w-1 flex-none cursor-col-resize transition-colors
-                      hover:bg-[var(--accent)]/40 ${panel.dragging ? 'bg-[var(--accent)]/60' : ''}`}
+                      hover:bg-[var(--brand)]/40 ${panel.dragging ? 'bg-[var(--brand)]/60' : ''}`}
         />
       )}
 
