@@ -25,6 +25,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import GongPull from '@/components/GongPull.jsx';
 import SkillManager from '@/components/SkillManager.jsx';
 import BuiltinData from '@/components/BuiltinData.jsx';
+import CxPortalData from '@/components/CxPortalData.jsx';
 import { Empty } from '@/components/common.jsx';
 import { cn } from '@/lib/utils';
 
@@ -262,6 +263,8 @@ function AppDetail({ id }) {
           {tab === 'Data' && (
             c.dataTab?.kind === 'pull'
               ? <GongPull />
+              : c.dataTab?.kind === 'cxportal'
+              ? <CxPortalData />
               : ['projects', 'library', 'graph', 'automation'].includes(c.dataTab?.kind)
               ? <BuiltinData kind={c.dataTab.kind} />
               : (

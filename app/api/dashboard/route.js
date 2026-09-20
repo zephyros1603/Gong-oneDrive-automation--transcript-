@@ -2,11 +2,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { json } from '@/core/http.js';
-import { sql, gte, desc, eq } from 'drizzle-orm';
+import { sql, gte, desc } from 'drizzle-orm';
 import { db } from '@/core/db/client.js';
 import {
   usage as usageTable, runs as runsTable, automationHistory,
-  projects as projectsTable, projectTranscripts, fromMicros,
+  projects as projectsTable, projectTranscripts, runFiles, fromMicros,
 } from '@/core/db/schema.js';
 import * as library from '@/library.js';
 import { loadConfig } from '@/gong.js';
@@ -85,6 +85,54 @@ export async function GET() {
     weekdays[(d + 6) % 7] += 1;
   }
 
+  // ---- tokens ------------------------------------------------------------
+  // Cost alone hides where the money goes: a run that reads twenty transcripts
+  // and writes a page is almost entirely input, and cache reads are billed at
+  // a tenth of fresh input. Split them, or the only available lever looks like
+  // "run it less often".
+  const tok = db.select({
+    input: sql`COALESCE(SUM(input_tokens), 0)`,
+    output: sql`COALESCE(SUM(output_tokens), 0)`,
+    cacheRead: sql`COALESCE(SUM(cache_read_tokens), 0)`,
+    cacheWrite: sql`COALESCE(SUM(cache_write_tokens), 0)`,
+    n: sql`COUNT(input_tokens)`,
+  }).from(usageTable).get();
+
+  const tokensByDay = db.select({
+    day: sql`strftime('%Y-%m-%d', at / 1000, 'unixepoch', 'localtime')`,
+    input: sql`COALESCE(SUM(input_tokens), 0)`,
+    output: sql`COALESCE(SUM(output_tokens), 0)`,
+    cacheRead: sql`COALESCE(SUM(cache_read_tokens), 0)`,
+  }).from(usageTable)
+    .where(gte(usageTable.at, now - 30 * DAY))
+    .groupBy(sql`1`).orderBy(sql`1`).all()
+    .map((r) => ({
+      day: r.day,
+      input: Number(r.input),
+      output: Number(r.output),
+      cacheRead: Number(r.cacheRead),
+    }));
+
+  // ---- transcripts processed --------------------------------------------
+  // Distinct paths, not rows: the same call read by a MOM run and again by the
+  // week's WSR is one transcript processed, not two. Coverage is the number
+  // worth acting on — an uncovered transcript is a call nobody reported on.
+  // Read straight off run_files, with no join to `runs`: that table is a
+  // six-hour replay buffer that prune() empties, so joining it would have made
+  // this widget read zero on a system that had processed hundreds.
+  const processedRows = db.select({
+    path: runFiles.path,
+    last: sql`MAX(COALESCE(${runFiles.at}, 0))`,
+  }).from(runFiles).groupBy(runFiles.path).all();
+
+  const processedPaths = new Set(processedRows.map((r) => r.path));
+  const inputPaths = new Set(transcripts.map((f) => f.path));
+  const processed7d = processedRows.filter((r) => now - Number(r.last) < 7 * DAY).length;
+
+  // Only transcripts still in the library count against coverage; a path that
+  // has since been deleted is not an unprocessed call, it is an absent one.
+  const covered = [...inputPaths].filter((p) => processedPaths.has(p)).length;
+
   // ---- projects needing attention ---------------------------------------
   // Customers with transcripts but nothing generated recently: the first
   // concrete step toward the commitment-ledger idea in docs/product-notes.md.
@@ -124,9 +172,14 @@ export async function GET() {
       total: transcripts.length,
       last7d: pulled7d,
       documents: documents.length,
-      // Not "processed" — that needs per-run file tracking, which is not
-      // recorded yet. This is the honest number available today.
       latestAt: transcripts.reduce((m, f) => Math.max(m, f.mtime), 0) || null,
+    },
+    processed: {
+      total: processedPaths.size,
+      last7d: processed7d,
+      covered,
+      uncovered: Math.max(0, inputPaths.size - covered),
+      pct: inputPaths.size ? Math.round((covered / inputPaths.size) * 100) : 0,
     },
     session: {
       host: cfg.host,
@@ -141,6 +194,17 @@ export async function GET() {
       missing: actions.filter((a) => !a.installed).length,
     },
     spend: { byDay: spendByDay, byAction, ...summariseSpend(spendByDay) },
+    tokens: {
+      input: Number(tok?.input ?? 0),
+      output: Number(tok?.output ?? 0),
+      cacheRead: Number(tok?.cacheRead ?? 0),
+      cacheWrite: Number(tok?.cacheWrite ?? 0),
+      total: Number(tok?.input ?? 0) + Number(tok?.output ?? 0),
+      // Runs recorded before token capture existed report nothing, and a total
+      // drawn from a third of the runs would read as a collapse in usage.
+      runs: Number(tok?.n ?? 0),
+      byDay: tokensByDay,
+    },
     outcomes: {
       total: Number(outcome?.n ?? 0),
       cancelled: Number(outcome?.cancelled ?? 0),

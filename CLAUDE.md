@@ -72,6 +72,74 @@ tab. `core/connectors/registry.js` is the one place an application is described 
 `capabilities` is what the rest of the app reads to decide what a workflow may
 use as a source. Adding Jira is a file here, not UI work.
 
+## CX Portal — the short-lived-token connector
+
+`core/connectors/cxportal.js`, reverse-engineered from a live session like the
+Gong client. Two things make it unlike every other connector:
+
+**The token lasts about an hour.** Gong's cookie lasts ~16 days, so paste-and-
+forget works there; it does not here. A schedule firing at 09:00 will almost
+always find an expired token. Until the Cognito refresh flow is implemented
+this connector is usable interactively and **unreliable on a timer** — say so
+rather than letting a schedule fail silently. `refreshToken` is in the portal's
+localStorage, so the flow is buildable; it just is not built.
+
+**Two token mistakes both produce an indistinguishable 401**: using the
+`idToken` instead of the `accessToken`, and using one that has aged out.
+`tokenInfo()` decodes `token_use` and `exp` offline, so `test()` names which of
+the two happened before making any request.
+
+Almost the whole API is `GET /ops/project-tracker?action=…`, so `action()` is
+the primary method and the named helpers wrap it. `filterLogic` is **global** —
+there is no per-clause nesting, which is why `customer = X AND (IC = Y OR
+secondary = Y)` cannot be expressed in one call and has to be sifted client
+side.
+
+Response schemas **are** now captured — `docs/cxportal-schemas.md`, with raw
+output in `docs/cxportal-shapes.json`. 15 of 17 actions answered;
+`calendar_tasks` needs parameters (400) and `tc_analysis_aggs` timed out (504).
+`shapeOf()` and the Data tab's **Shape** mode report structure without printing
+records, which is how that was done without customer data landing in a log.
+
+Three findings that contradict the original reference:
+
+- `nextCursor` comes back as a **string**, though the request takes the cursor
+  as a JSON tuple. Echo it verbatim; do not re-encode.
+- `secondaryConsultantName` is filterable but **never returned**, so a result
+  cannot tell you which of the two IC slots matched.
+- `/ops/customersps` is genuinely paginated (`totalPages`, `hasMore`). "Pages
+  1 to 6" is what the SPA requests, not a fixed bound.
+
+## Feeding more than transcripts into a run
+
+A workflow's scope is a list of **file paths**, because that is what the agent
+reads cheaply through `--add-dir`. Anything that is not already a file — the CX
+Portal tracker today, Jira or mail later — is rendered to markdown per customer
+by `core/workflow/context.js` and added to the same list. Files, not prompt
+text: an unread context file costs nothing, an inlined one is paid for on every
+turn.
+
+The folder is **`warp-context/`**, not `context/`. A plain `context/` already
+existed at the project root holding hand-written research notes, and adopting
+it as a library root fed those notes into every workflow.
+
+**Match customers server-side.** The two systems only share a customer name —
+Gong groups by `callCustomers`, the tracker by `customerName` — and punctuate
+differently ("Tech Systems Inc" vs "Tech Systems, Inc."), so the probe is the
+longest distinctive word with a `contains` filter, confirmed against the full
+name afterwards. Fetching a page and matching in memory looked fine and was
+silently wrong: there are 1100+ projects, a page returns 200, and most
+customers were never in the window. That took 8 of 9 matches from 2.
+
+`customerName` is a confirmed filter attribute — a fourth, beyond the three in
+the original reference.
+
+**Phosphor only ships qualified icon names.** `Brackets` does not exist;
+`BracketsCurly` does. Importing a name the package does not export yields
+`undefined`, which React reports as a render crash several frames from the
+import — it crashed the CX Portal Data tab. Check the export before using an
+icon name that seems obvious.
+
 ## Default applications
 
 Projects, Library, Graph and Automation are registered in
@@ -110,6 +178,39 @@ meant any save that omitted it silently demoted the default graph, which then
 let it be deleted and made `ensureDefaultGraph()` create a duplicate. Both
 `saveGraph` and `saveWorkflow` now set it on insert only. This bug shipped and
 had to be repaired in data.
+
+## Syncs — what Workbench is
+
+**Workbench is not a chat.** Chat lives in Projects, where it has a customer
+and a history to belong to. Workbench lists *sync types* as cards
+(`SYNC_TYPES` in `core/workflow/store.js` — today only `gong → claude` is
+available) and each card holds the automations configured under it, one per
+customer, each with its own id shown on the page for tracking.
+
+`/workbench/[id]` is the whole definition in four steps: pull → scope → prompt
+and skill → schedule. That is the same record Automation schedules, so **Run
+now** here and the 09:00 firing are the same `runWorkflow()`.
+
+There is no file tree in Workbench. Picking individual files is a chat
+affordance and belongs in Projects.
+
+## Runs must be findable again
+
+A run is server-owned, so leaving a page aborts the *stream* and not the work.
+Coming back therefore has to re-attach, and that only works if the run records
+what started it:
+
+- `startChatRun` merges `body.meta` into the run's meta.
+- `runWorkflow` passes `{ workflowId, trigger }`.
+- A page finds its run on mount with
+  `runs.find(r => r.status === 'running' && r.meta?.workflowId === id)`.
+
+Without that tag, navigating away mid-run left the job running invisibly with
+its output arriving nowhere — which is exactly what the old Workbench did.
+
+The other half is that `useRunStream` resets when `runId` goes null, so a
+finished run's output has to be captured in `onFinish` before clearing, or the
+result vanishes the instant it succeeds.
 
 ## Workflows and schedules
 

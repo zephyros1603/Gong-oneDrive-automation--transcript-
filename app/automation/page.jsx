@@ -22,6 +22,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useRunStream } from '@/lib/useRunStream.js';
 import { useResizablePanel, useBreakpoint } from '@/lib/useResponsive.js';
 import { ago, plural, money4 } from '@/lib/format.js';
+import { WindowPicker } from '@/components/WindowPicker.jsx';
+import { resolveWindow } from '@/core/workflow/window.js';
 import { cn } from '@/lib/utils';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -80,6 +82,22 @@ export default function AutomationPage() {
     await fetch('/api/schedules', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(draft),
+    });
+    await load();
+  };
+
+  /**
+   * The window lives on the workflow, so editing it here writes there.
+   * The local copy is updated first — otherwise the buttons do not move until
+   * the reload lands and the control feels broken.
+   */
+  const saveWindow = async (wf, next) => {
+    setWorkflows((all) => all.map((x) =>
+      x.id === wf.id ? { ...x, scope: { ...x.scope, window: next } } : x));
+
+    await fetch(`/api/workflows/${wf.id}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scope: { ...wf.scope, window: next } }),
     });
     await load();
   };
@@ -250,6 +268,29 @@ export default function AutomationPage() {
                     })}
                   </div>
                 </div>
+
+                {/* The window belongs to the workflow, but this is where people
+                    ask "what will tonight's run actually cover" — so it is
+                    editable here rather than one page away. */}
+                {(() => {
+                  const wf = workflows.find((x) => x.id === draft.workflowId);
+                  if (!wf) return null;
+                  const win = resolveWindow(wf.scope?.window);
+                  return (
+                    <div className="mt-3 rounded-xl border border-border p-3">
+                      <WindowPicker
+                        label="Data window"
+                        value={wf.scope?.window}
+                        onChange={(next) => saveWindow(wf, next)}
+                      />
+                      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                        Each run pulls <span className="font-medium text-foreground">{win.label.toLowerCase()}</span> of
+                        material from every source <span className="font-medium text-foreground">{wf.name}</span> uses,
+                        and feeds that to Claude. Shared with the workflow — changing it here changes it there.
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 <label className="mt-3 flex items-center gap-2 text-[12.5px]">
                   <input type="checkbox" checked={Boolean(draft.enabled)}

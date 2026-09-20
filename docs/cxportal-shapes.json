@@ -1,0 +1,998 @@
+{
+  "list_projects": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "projects": {
+        "array": 2,
+        "of": {
+          "businessAnalystId": "string",
+          "solutionsArchitectId": "string",
+          "assignedTCs": "array(0)",
+          "endDate": "string",
+          "updatedByEmail": "string",
+          "targetDateChangeOwner": "string",
+          "projectType": "string",
+          "stationListEnabled": "boolean",
+          "stationListSkipped": "number",
+          "createdByEmail": "string",
+          "createdAt": "string",
+          "targetDateChangeDate": "string",
+          "targetDateChangeReason": "string",
+          "parentProjectId": "string",
+          "stationListActive": "string",
+          "phaseHistory": "array(7)",
+          "stationListStatus": "string",
+          "epmId": "string",
+          "updatedAt": "string",
+          "connectorSource": "string",
+          "solutionsArchitectName": "string",
+          "budgetedHours": "number",
+          "updatedBy": "string",
+          "seqNum": "number",
+          "targetDate": "string",
+          "customerName": "string",
+          "subStatus": "string",
+          "tags": "array(2)",
+          "consultantName": "string",
+          "meetingsHeld": "number",
+          "parentName": "string",
+          "implementationLeadName": "string",
+          "phaseChangedAt": "string",
+          "name": "string",
+          "implementationPhase": "string",
+          "displayId": "string",
+          "projectId": "string",
+          "stationListTotal": "number",
+          "startDate": "string",
+          "status": "string"
+        }
+      },
+      "total": "number",
+      "size": "number",
+      "statusCounts": {
+        "active": "number",
+        "completed": "number",
+        "on_hold": "number",
+        "cancelled": "number"
+      },
+      "allTotal": "number",
+      "nextCursor": "string"
+    }
+  },
+  "calendar_tasks": {
+    "ok": false,
+    "error": "HTTP 400 from /ops/project-tracker?action=calendar_tasks"
+  },
+  "bulk_gong_counts": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "counts": {}
+    }
+  },
+  "stats": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "customers": "number",
+      "projects": "number",
+      "active": "number",
+      "closed": "number",
+      "blockedByEngineering": "number",
+      "inProgress": "number",
+      "phaseCounts": {
+        "phase_1780652904894": "number",
+        "connectivity": "number",
+        "onboarding": "number",
+        "testing": "number",
+        "phase_1775460708495": "number",
+        "phase_1781617238476": "number",
+        "phase_1788154886300": "number",
+        "phase_1788169869329": "number",
+        "phase_1780114483755": "number",
+        "awaiting_go_live": "number",
+        "phase_1775460677740": "number",
+        "phase_1781519413237": "number",
+        "phase_1781770962895": "number",
+        "phase_1780652926287": "number",
+        "phase_1780652917137": "number",
+        "phase_1780652880971": "number",
+        "phase_1781593415975": "number",
+        "phase_1781589811342": "number",
+        "phase_1780306891642": "number"
+      },
+      "subprojects": "number",
+      "onboardingForced": {
+        "total": "number",
+        "byLabel": {
+          "on hold": "number",
+          "blocked by engineering": "number",
+          "implementation": "number",
+          "testing & uat": "number"
+        }
+      },
+      "hours": "number",
+      "meetings": "number",
+      "tasks": "number",
+      "hoursLeft": "number",
+      "totalBudgeted": "number"
+    }
+  },
+  "get_stations_grid_summary": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "stations": {
+        "array": 7,
+        "of": {
+          "stationId": "string",
+          "label": "string",
+          "order": "number",
+          "coordinator": "object",
+          "assigneeCount": "number",
+          "activeProjectCount": "number",
+          "completedProjectCount": "number",
+          "totalProjectCount": "number",
+          "queuedCount": "number",
+          "onHoldCount": "number",
+          "custDemoCount": "number",
+          "notStartedCount": "number",
+          "skippedCount": "number",
+          "activeTaskCount": "number"
+        }
+      },
+      "_generatedAt": "string"
+    }
+  },
+  "get_user_filters": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "filters": {
+        "array": 1,
+        "of": {
+          "filterId": "string",
+          "filterName": "string",
+          "conditions": "array(1)",
+          "filterLogic": "string",
+          "isDefault": "boolean",
+          "createdAt": "string",
+          "updatedAt": "string"
+        }
+      }
+    }
+  },
+  "list_project_customers": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "customers": {
+        "array": 561,
+        "of": {
+          "customerId": "string",
+          "name": "string",
+          "projectCount": "number"
+        }
+      }
+    }
+  },
+  "list_tasks": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "tasks": {
+        "array": 50,
+        "of": {
+          "businessAnalystId": "string",
+          "solutionsArchitectId": "string",
+          "updatedByEmail": "string",
+          "meetingId": "string",
+          "type": "string",
+          "stationListEnabled": "boolean",
+          "createdByEmail": "string",
+          "createdAt": "string",
+          "meetingPassword": "string",
+          "substationName": "string",
+          "scoId": "string",
+          "secondaryAssigneeId": "string",
+          "epmId": "string",
+          "stationId": "string",
+          "updatedAt": "string",
+          "connectorSource": "string",
+          "solutionsArchitectName": "string",
+          "updatedBy": "string",
+          "recurrenceSummary": "string",
+          "seqNum": "number",
+          "providerMeetingId": "string",
+          "customerName": "string",
+          "recurrence": "null",
+          "consultantName": "string",
+          "name": "string",
+          "displayId": "string",
+          "projectName": "string",
+          "projectId": "string",
+          "status": "string",
+          "consultantId": "string",
+          "description": "string",
+          "scheduledDate": "string",
+          "platform": "string",
+          "substationId": "string",
+          "businessAnalystName": "string",
+          "sdmName": "string",
+          "startUrl": "string",
+          "assigneeRole": "string",
+          "epmName": "string",
+          "assigneeName": "string"
+        }
+      },
+      "total": "number",
+      "size": "number",
+      "nextCursor": "string"
+    }
+  },
+  "list_audit_logs": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "logs": {
+        "array": 50,
+        "of": {
+          "logId": "string",
+          "entityType": "string",
+          "entityId": "string",
+          "entityDisplayId": "string",
+          "entityName": "string",
+          "action": "string",
+          "userId": "string",
+          "userName": "string",
+          "customerId": "string",
+          "customerName": "string",
+          "projectId": "string",
+          "projectDisplayId": "string",
+          "projectName": "string",
+          "changes": "array(3)",
+          "summary": "string",
+          "timestamp": "string",
+          "_id": "string"
+        }
+      },
+      "total": "number",
+      "_debug": {
+        "index": "string",
+        "matched": "number",
+        "returned": "number",
+        "from": "number",
+        "size": "number",
+        "filters": {
+          "entityType": "string",
+          "action": "string",
+          "userId": "string",
+          "projectId": "string",
+          "customerIds": "array(0)",
+          "startDate": "string",
+          "endDate": "string",
+          "search": "string"
+        }
+      }
+    }
+  },
+  "customer_enriched": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "customers": {
+        "array": 577,
+        "of": {
+          "customerId": "string",
+          "name": "string",
+          "sfId": "string",
+          "tenantId": "string",
+          "tenantName": "string",
+          "projectCount": "number",
+          "activeProjects": "number",
+          "completedProjects": "number",
+          "totalBudgeted": "number",
+          "totalConsumed": "number",
+          "taskCount": "number",
+          "openedTaskCount": "number",
+          "completedTaskCount": "number",
+          "meetingCount": "number",
+          "engagementManagers": "array(0)",
+          "activeStationIds": "array(0)",
+          "customerDocTypes": "array(1)",
+          "sentiment": "string",
+          "sentimentNote": "string",
+          "sentimentChangedBy": "string",
+          "sentimentChangedAt": "string",
+          "upsell": "boolean",
+          "upsellComment": "string",
+          "upsellChangedBy": "string",
+          "upsellChangedByEmail": "string",
+          "upsellChangedAt": "string",
+          "troubledStatus": "string",
+          "troubledActive": "boolean",
+          "troubledCategory": "string",
+          "troubledCategoryLabel": "string",
+          "troubledReason": "string",
+          "troubledResolution": "string",
+          "troubledNextCallDate": "string",
+          "troubledIncidentDate": "string",
+          "troubledNextSteps": "string",
+          "troubledProjectIds": "array(0)",
+          "troubledProjectNames": "array(0)",
+          "troubledChangedBy": "string",
+          "troubledChangedAt": "string",
+          "troubledOccurrenceCount": "number"
+        }
+      },
+      "total": "number",
+      "size": "number"
+    }
+  },
+  "bulk_outlook_next": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "next": {},
+      "last": {},
+      "stats": {}
+    }
+  },
+  "planned_hours": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "weeks": {
+        "array": 10,
+        "of": {
+          "weekStart": "string",
+          "weekEnd": "string",
+          "label": "string",
+          "planned": "number",
+          "available": "number"
+        }
+      }
+    }
+  },
+  "get_unread_notification_count": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "count": "number"
+    }
+  },
+  "list_stations": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "stations": {
+        "array": 50,
+        "of": {
+          "project": "object",
+          "station": "object"
+        }
+      },
+      "total": "number",
+      "_debug": {
+        "index": "string",
+        "projects_matched": "number",
+        "rows_after_flatten": "number"
+      }
+    }
+  },
+  "dashboard_aggs_v2": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "recentTasks": {
+        "array": 12,
+        "of": {
+          "hours": "number",
+          "providerMeetingId": "string",
+          "type": "string",
+          "meetingUrl": "string",
+          "customerName": "string",
+          "platform": "string",
+          "createdAt": "string",
+          "consultantName": "string",
+          "name": "string",
+          "startTime": "string",
+          "location": "string",
+          "projectName": "string",
+          "taskId": "string",
+          "_id": "string"
+        }
+      },
+      "upcomingTasks": {
+        "array": 0,
+        "of": "empty"
+      },
+      "weekSchedule": {
+        "2026-09-14": {
+          "taskCount": "number",
+          "hours": "number",
+          "meetingCount": "number",
+          "customerCount": "number",
+          "projectCount": "number",
+          "tcCount": "number",
+          "topTasks": "array(1)"
+        },
+        "2026-09-15": {
+          "taskCount": "number",
+          "hours": "number",
+          "meetingCount": "number",
+          "customerCount": "number",
+          "projectCount": "number",
+          "tcCount": "number",
+          "topTasks": "array(2)"
+        },
+        "2026-09-16": {
+          "taskCount": "number",
+          "hours": "number",
+          "meetingCount": "number",
+          "customerCount": "number",
+          "projectCount": "number",
+          "tcCount": "number",
+          "topTasks": "array(3)"
+        }
+      },
+      "weekStart": "string",
+      "weekEnd": "string",
+      "topCustomers": {
+        "array": 8,
+        "of": {
+          "name": "string",
+          "tasks": "number",
+          "hours": "number",
+          "meetings": "number",
+          "projectCount": "number"
+        }
+      },
+      "taskTypes": {
+        "array": 1,
+        "of": {
+          "type": "string",
+          "count": "number",
+          "hours": "number",
+          "pct": "number"
+        }
+      },
+      "tcActivity": {
+        "array": 54,
+        "of": {
+          "consultantId": "string",
+          "name": "string",
+          "taskCount": "number",
+          "hours": "number",
+          "meetingCount": "number",
+          "customerCount": "number",
+          "projectCount": "number",
+          "topCustomers": "array(3)"
+        }
+      },
+      "monthlyTrends": {
+        "thisMonth": {
+          "tasks": "number",
+          "hours": "number",
+          "meetings": "number"
+        },
+        "lastMonth": {
+          "tasks": "number",
+          "hours": "number",
+          "meetings": "number"
+        }
+      },
+      "platformStats": {
+        "meeting": {
+          "count": "number",
+          "hours": "number"
+        }
+      },
+      "projectTaskStats": {
+        "proj_1774435841755_082521ec": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1774435897031_dc9ae7ee": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1774520398436_9fd78a58": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775036534449_1dcd23a5": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775038212222_127f6047": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775038885810_d08becf5": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775039142078_c5b82eb0": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775039465954_2717fe52": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775039996021_d0676fed": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775040890723_78ffcd22": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775041259425_905bd2e9": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775041323035_32008ab1": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775042804450_3af8bc3c": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775050213331_1945bae8": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775050278915_0656a0de": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775050440031_71d40dcf": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775050582327_86b4b881": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775050652740_55216a98": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775050820602_a6af098b": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775052188565_35beb29e": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775052533622_3d32a2b4": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775052815924_051f42c3": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775052920850_72db1dd0": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775072253958_e7a82caa": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775072662151_3c8f26b4": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775072748084_4e499be3": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775073124586_f1e5ec16": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775073336190_8baa80d0": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775073438227_0701daaf": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775073588495_3a1e2dcb": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775073888219_438aba0c": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775073949486_77a2aaba": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775073996528_7df2f7c1": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775074087010_6d4039a1": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775074275300_1744439d": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775074406340_8eb80373": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775074522811_ad25986e": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775074606741_c77b80d9": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775074685770_94d8f997": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        },
+        "proj_1775074719782_ba84fbbc": {
+          "taskCount": "number",
+          "lastActivity": "string",
+          "hours": "number"
+        }
+      },
+      "projectStatus": {
+        "active": "number",
+        "completed": "number",
+        "status_1775460438026": "number",
+        "status_1778167041438": "number",
+        "status_1774595866607": "number",
+        "status_1775460513232": "number",
+        "status_1775460146704": "number",
+        "status_1775460032024": "number",
+        "status_1775460526454": "number"
+      },
+      "connectorDist": {
+        "array": 149,
+        "of": {
+          "name": "string",
+          "customerCount": "number",
+          "topCustomers": "array(3)",
+          "projects": "number",
+          "hours": "number",
+          "active": "number",
+          "completed": "number"
+        }
+      },
+      "integrationDist": {
+        "array": 218,
+        "of": {
+          "source": "string",
+          "target": "string",
+          "count": "number",
+          "topCustomers": "array(3)"
+        }
+      },
+      "activeProjects": {
+        "array": 781,
+        "of": {
+          "connectorSource": "string",
+          "implementationLeadId": "string",
+          "budgetedHours": "number",
+          "assignedTCs": "array(0)",
+          "targetDate": "string",
+          "consumedHours": "number",
+          "projectType": "string",
+          "connectorTarget": "string",
+          "pcoName": "string",
+          "customerName": "string",
+          "subStatus": "string",
+          "pcoId": "string",
+          "implementationSubPhase": "string",
+          "implementationLeadName": "string",
+          "epmName": "string",
+          "assignedTCNames": "array(0)",
+          "name": "string",
+          "customerId": "string",
+          "implementationPhase": "string",
+          "sfId": "string",
+          "projectId": "string",
+          "epmId": "string",
+          "status": "string",
+          "_id": "string",
+          "emId": "string",
+          "emName": "string",
+          "ocmId": "string",
+          "ocmName": "string",
+          "sdmId": "string",
+          "sdmName": "string",
+          "hodmId": "string",
+          "hodmName": "string",
+          "tcmId": "string",
+          "tcmName": "string",
+          "deliveryTrack": "string",
+          "owner": "string",
+          "usersLicensed": "string",
+          "slackChannelId": "string",
+          "slackChannelName": "string",
+          "onboardingDate": "string"
+        }
+      },
+      "totalTasks": "number",
+      "totalHours": "number",
+      "totalMeetings": "number",
+      "totalBudgeted": "number",
+      "totalConsumed": "number",
+      "projectHealth": {
+        "array": 9,
+        "of": {
+          "projectId": "string",
+          "displayId": "string",
+          "name": "string",
+          "customerName": "string",
+          "health": "string",
+          "reasons": "array(1)",
+          "reasonChips": "array(1)",
+          "severity": "number",
+          "integration": "string",
+          "connectorSource": "string",
+          "connectorTarget": "string",
+          "phase": "string",
+          "subStatus": "string",
+          "pct": "number",
+          "budgetedHours": "number",
+          "consumedHours": "number",
+          "targetDate": "string",
+          "daysLeft": "number",
+          "daysSinceActivity": "null",
+          "taskCount": "number",
+          "tcNames": "array(0)",
+          "tcName": "string",
+          "emName": "string",
+          "icLeadName": "string",
+          "pcoName": "string",
+          "sdmName": "string"
+        }
+      },
+      "stalledProjects": {
+        "array": 27,
+        "of": {
+          "projectId": "string",
+          "displayId": "string",
+          "name": "string",
+          "customerName": "string",
+          "health": "string",
+          "daysSinceActivity": "number",
+          "phase": "string",
+          "pct": "number",
+          "budgetedHours": "number",
+          "consumedHours": "number",
+          "tcNames": "array(1)",
+          "tcName": "string",
+          "emName": "string",
+          "icLeadName": "string",
+          "pcoName": "string",
+          "sdmName": "string"
+        }
+      },
+      "escalations": {
+        "count": "number",
+        "items": {
+          "array": 0,
+          "of": "empty"
+        }
+      },
+      "overdueTasks": {
+        "count": "number",
+        "items": {
+          "array": 15,
+          "of": "object"
+        }
+      },
+      "troubledSummary": {
+        "count": "number",
+        "items": {
+          "array": 10,
+          "of": "object"
+        }
+      },
+      "phaseFunnel": {
+        "array": 14,
+        "of": {
+          "id": "string",
+          "label": "string",
+          "color": "string",
+          "count": "number"
+        }
+      },
+      "phaseGroups": {
+        "array": 4,
+        "of": {
+          "key": "string",
+          "label": "string",
+          "color": "string",
+          "phases": "array(8)",
+          "total": "number",
+          "phaseCount": "number",
+          "pct": "number"
+        }
+      },
+      "phaseGroupsTotal": "number",
+      "phaseGroupsPhaseCount": "number",
+      "totalProjects": "number",
+      "activeProjectsCount": "number",
+      "goLiveBuckets": {
+        "overdue": {
+          "array": 151,
+          "of": "object"
+        },
+        "d7": {
+          "array": 61,
+          "of": "object"
+        },
+        "d30": {
+          "array": 314,
+          "of": "object"
+        },
+        "d90": {
+          "array": 126,
+          "of": "object"
+        }
+      },
+      "stationSummary": {
+        "projects": "number",
+        "notStarted": "number",
+        "queued": "number",
+        "inProgress": "number",
+        "completed": "number",
+        "skipped": "number"
+      },
+      "sentimentSummary": {
+        "array": 5,
+        "of": {
+          "id": "string",
+          "label": "string",
+          "color": "string",
+          "count": "number"
+        }
+      },
+      "tcWeeklyLoad": {
+        "array": 2,
+        "of": {
+          "consultantId": "string",
+          "name": "string",
+          "weeks": "array(4)",
+          "totalHours": "number"
+        }
+      },
+      "heatWeeks": {
+        "array": 4,
+        "of": "string"
+      },
+      "kpiTrends": {
+        "tasksCreated": {
+          "array": 8,
+          "of": "object"
+        },
+        "hoursLogged": {
+          "array": 8,
+          "of": "object"
+        },
+        "meetings": {
+          "array": 8,
+          "of": "object"
+        }
+      }
+    }
+  },
+  "tc_analysis_aggs": {
+    "ok": false,
+    "error": "HTTP 504 from /ops/project-tracker?action=tc_analysis_aggs"
+  },
+  "customersps(page1)": {
+    "ok": true,
+    "shape": {
+      "success": "boolean",
+      "page": "number",
+      "limit": "number",
+      "timestamp": "string",
+      "items": {
+        "array": 300,
+        "of": {
+          "sfId": "string",
+          "tenantId": "string",
+          "customerName": "string",
+          "healthStatus": "string",
+          "currentStatus": "string",
+          "level": "string",
+          "business": "array(2)",
+          "country": "string",
+          "address": "string",
+          "timeZone": "string",
+          "connections": "array(4)",
+          "usersLicensed": "number",
+          "actualUserCount": "number",
+          "supportType": "string",
+          "termEnd": "string",
+          "termStart": "string",
+          "goLiveDate": "string",
+          "goLiveDateHistory": "string",
+          "industry": "string",
+          "modulesLicensed": "string",
+          "licenseType": "array(1)",
+          "sales": "string",
+          "salesExec": "string",
+          "owner": "string",
+          "csm": "string",
+          "csmExecSummary": "string",
+          "engagementManager": "string",
+          "tcLead": "string",
+          "contract": "string",
+          "salesforceLink": "string",
+          "sfAccountId": "string",
+          "executiveSponsor": "string",
+          "latestUpdate": "string",
+          "created": "string",
+          "createdBy": "string",
+          "modified": "string",
+          "modifiedBy": "string",
+          "version": "string",
+          "attachments": "boolean"
+        }
+      },
+      "totalPages": "number",
+      "totalRecords": "number",
+      "hasMore": "boolean"
+    }
+  }
+}

@@ -17,6 +17,9 @@ import {
   readSettings, rememberSession, expandPath, recordUsage, usageSummary,
 } from '../settings.js';
 import { PROJECT_ROOT } from './paths.js';
+import { proposeFromRun } from './approvals/store.js';
+import { recordRunFiles } from './run-files.js';
+import { extractEmail, parseEmail } from '../lib/md.js';
 
 /**
  * A document belongs to this run if it was written after the run began. The
@@ -119,7 +122,16 @@ export async function startChatRun(body) {
     kind: 'chat',
     projectId: project?.id || null,
     label,
-    meta: { actionId: action?.id || null, files: files.length, message, sessionReset },
+    meta: {
+      actionId: action?.id || null,
+      files: files.length,
+      message,
+      sessionReset,
+      // Whatever started this run, recorded so a page that comes back later
+      // can find it again. Without it, navigating away mid-run left the work
+      // running invisibly with its output arriving nowhere.
+      ...(body.meta || {}),
+    },
   });
 
   // 2. a placeholder reply the stream fills in
@@ -129,6 +141,11 @@ export async function startChatRun(body) {
       role: 'claude', text: '', runId: run.id, pending: true,
     }).id;
   }
+
+  // What this run was handed, by path. A chat in a project is given that
+  // customer's transcripts without anyone attaching them, and those count as
+  // processed just as much as a scheduled workflow's do.
+  recordRunFiles(run.id, files);
 
   const before = library.version('output');
   const startedAt = Date.now();
@@ -172,6 +189,10 @@ export async function startChatRun(body) {
           turns: reported?.turns,
           files: files.length,
           cancelled: Boolean(e.cancelled) || !reported,
+          inputTokens: reported?.inputTokens,
+          outputTokens: reported?.outputTokens,
+          cacheReadTokens: reported?.cacheReadTokens,
+          cacheWriteTokens: reported?.cacheWriteTokens,
         });
 
         const fresh = library.listFiles().filter((f) => f.kind === 'output');
@@ -193,6 +214,24 @@ export async function startChatRun(body) {
                   .map((f) => ({ path: f.path, name: f.name, size: f.size }))
               : [],
           });
+        }
+
+        // What the run produced goes to the review queue, not straight out.
+        if (!e.cancelled && reported) {
+          try {
+            const text = runs.get(run.id)?.text || '';
+            const { email } = extractEmail(text);
+            proposeFromRun({
+              runId: run.id,
+              workflowId: body.meta?.workflowId || null,
+              projectId: project?.id || null,
+              label,
+              documents: changed
+                ? fresh.filter((f) => f.mtime >= startedAt - CLOCK_SKEW_MS)
+                : [],
+              email: email ? parseEmail(email) : null,
+            });
+          } catch { /* a failed proposal must not fail the run */ }
         }
 
         runs.finish(run.id, {

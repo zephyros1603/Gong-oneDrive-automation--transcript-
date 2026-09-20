@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS project_transcripts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id TEXT NOT NULL,
   path TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'transcript',
+  source TEXT,
   added_at INTEGER NOT NULL,
   UNIQUE (project_id, path)
 );
@@ -133,7 +135,8 @@ CREATE INDEX IF NOT EXISTS sched_workflow ON schedules (workflow_id);
 CREATE TABLE IF NOT EXISTS run_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT NOT NULL,
-  path TEXT NOT NULL
+  path TEXT NOT NULL,
+  at INTEGER
 );
 CREATE INDEX IF NOT EXISTS rf_run ON run_files (run_id);
 
@@ -146,6 +149,22 @@ CREATE TABLE IF NOT EXISTS graphs (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS approvals (
+  id TEXT PRIMARY KEY,
+  run_id TEXT,
+  workflow_id TEXT,
+  project_id TEXT,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  path TEXT,
+  body TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  note TEXT,
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS appr_status ON approvals (status, created_at);
 
 CREATE TABLE IF NOT EXISTS automation_history (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,7 +191,49 @@ function open() {
   sqlite.pragma('busy_timeout = 5000');
 
   sqlite.exec(DDL);
+  migrateColumns(sqlite);
+  // After the ALTERs, never before: an index over a column that migrateColumns
+  // has yet to add would abort the whole DDL batch on an older database.
+  sqlite.exec(ADDED_INDEXES);
   return { sqlite, db: drizzle(sqlite, { schema }) };
+}
+
+/**
+ * Columns added after a table first shipped.
+ *
+ * `CREATE TABLE IF NOT EXISTS` does nothing to an existing table, so a new
+ * column needs an explicit ALTER. SQLite has no `ADD COLUMN IF NOT EXISTS`,
+ * hence the pragma check — and a duplicate-column error is swallowed rather
+ * than crashing a server that is otherwise fine.
+ */
+const ADDED_COLUMNS = [
+  ['workflows', 'source', "TEXT NOT NULL DEFAULT 'gong'"],
+  ['workflows', 'destination', "TEXT NOT NULL DEFAULT 'claude'"],
+  ['workflows', 'pull', 'TEXT'],
+  ['usage', 'input_tokens', 'INTEGER'],
+  ['usage', 'output_tokens', 'INTEGER'],
+  ['usage', 'cache_read_tokens', 'INTEGER'],
+  ['usage', 'cache_write_tokens', 'INTEGER'],
+  ['run_files', 'at', 'INTEGER'],
+  ['project_transcripts', 'kind', "TEXT NOT NULL DEFAULT 'transcript'"],
+  ['project_transcripts', 'source', 'TEXT'],
+  ['workflows', 'source_instructions', 'TEXT'],
+];
+
+/** Indexes over columns that ADDED_COLUMNS introduces. */
+const ADDED_INDEXES = `
+CREATE INDEX IF NOT EXISTS rf_at ON run_files (at);
+CREATE INDEX IF NOT EXISTS pt_kind ON project_transcripts (kind);
+`;
+
+function migrateColumns(sqlite) {
+  for (const [table, column, type] of ADDED_COLUMNS) {
+    try {
+      const has = sqlite.prepare(`PRAGMA table_info(${table})`).all()
+        .some((c) => c.name === column);
+      if (!has) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch { /* the table may not exist yet on a first run; DDL covers it */ }
+  }
 }
 
 const store = (globalForDb.__gong_db ??= open());

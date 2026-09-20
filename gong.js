@@ -127,6 +127,14 @@ export function loadConfig(overrides = {}) {
       join(resolveDir(pick('GONG_OUT_DIR'), 'transcripts'), '..', 'documents')
     ),
     // Extra folders the preview sidebar should index, colon-separated.
+    // CX Portal (Aquera project tracker). The token is short-lived — see
+    // core/connectors/cxportal.js — but it is still a credential, so it lives
+    // here with the others rather than in the database.
+    cxHost: pick('CXPORTAL_HOST') || 'https://saapi.aquera.com',
+    cxToken: pick('CXPORTAL_TOKEN') || '',
+    cxRefreshToken: pick('CXPORTAL_REFRESH_TOKEN') || '',
+    cxConsultant: pick('CXPORTAL_CONSULTANT') || '',
+    cxHideClosed: pick('CXPORTAL_HIDE_CLOSED') !== 'off',
     previewDirs: pick('GONG_PREVIEW_DIRS') || '',
     pageSize: Number(pick('GONG_PAGE_SIZE') || 100),
     concurrency: Math.max(1, Number(pick('GONG_CONCURRENCY') || 4)),

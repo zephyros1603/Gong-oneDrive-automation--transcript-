@@ -24,6 +24,15 @@ function readValues(id) {
   if (id === 'claude') {
     return { model: s.model || '', maxTurns: String(s.maxTurns ?? 40), outputDir: s.outputDir };
   }
+  if (id === 'cxportal') {
+    return {
+      CXPORTAL_HOST: cfg.cxHost,
+      CXPORTAL_TOKEN: cfg.cxToken,
+      CXPORTAL_REFRESH_TOKEN: cfg.cxRefreshToken,
+      CXPORTAL_CONSULTANT: cfg.cxConsultant,
+      CXPORTAL_HIDE_CLOSED: cfg.cxHideClosed ? 'on' : 'off',
+    };
+  }
   if (id === 'projects') {
     return { sortedDir: cfg.sortedDir, autoSync: s.autoSyncProjects === false ? 'off' : 'on' };
   }
@@ -83,6 +92,14 @@ export async function POST(req, { params }) {
     if (body.action === 'save') {
       const v = body.values || {};
       if (id === 'gong') return json({ saved: saveEnv(v) });
+      if (id === 'cxportal') {
+        const patch = {};
+        for (const k of ['CXPORTAL_HOST', 'CXPORTAL_TOKEN', 'CXPORTAL_REFRESH_TOKEN',
+                         'CXPORTAL_CONSULTANT', 'CXPORTAL_HIDE_CLOSED']) {
+          if (v[k] !== undefined) patch[k] = v[k];
+        }
+        return json({ saved: saveEnv(patch) });
+      }
       if (id === 'claude') {
         return json({ saved: writeSettings({
           model: v.model ?? '',

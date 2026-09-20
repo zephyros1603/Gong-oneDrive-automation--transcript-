@@ -5,12 +5,20 @@ import { json, fail, readBody } from '@/core/http.js';
 import { getWorkflow, saveWorkflow, deleteWorkflow } from '@/core/workflow/store.js';
 import { runWorkflow, resolveScope } from '@/core/workflow/run.js';
 import * as runs from '@/runs.js';
+import { listProjects } from '@/projects.js';
 
 export async function GET(req, { params }) {
   const { id } = await params;
   const w = getWorkflow(id);
   if (!w) return json({ error: 'no such workflow' }, 404);
-  return json({ workflow: w, inScope: resolveScope(w.scope).length });
+  // The customer list ships with the workflow: without it the scope <select>
+  // has no option matching the saved projectId and silently displays "All
+  // customers" while actually being scoped to one.
+  return json({
+    workflow: w,
+    inScope: resolveScope(w.scope).length,
+    projects: listProjects().map((p) => ({ id: p.id, name: p.name })),
+  });
 }
 
 export async function POST(req, { params }) {

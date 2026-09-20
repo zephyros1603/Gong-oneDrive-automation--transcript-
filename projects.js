@@ -29,8 +29,36 @@ const parse = (s, fallback = null) => {
 
 function transcriptsFor(id) {
   return db.select({ path: projectTranscripts.path }).from(projectTranscripts)
-    .where(eq(projectTranscripts.projectId, id))
+    .where(and(eq(projectTranscripts.projectId, id), eq(projectTranscripts.kind, 'transcript')))
     .orderBy(desc(projectTranscripts.addedAt)).all().map((r) => r.path);
+}
+
+/**
+ * Context files attached to a customer — the CX Portal view today.
+ *
+ * Separate from transcripts because they are maintained separately: these are
+ * rewritten whenever the tracker is re-read, while transcripts arrive once and
+ * stay. Keeping them apart is also what stops syncFromLibrary, which rebuilds
+ * transcripts from the sorted tree, from deleting every one of them.
+ */
+export function contextFor(id) {
+  return db.select({ path: projectTranscripts.path, source: projectTranscripts.source,
+                     addedAt: projectTranscripts.addedAt })
+    .from(projectTranscripts)
+    .where(and(eq(projectTranscripts.projectId, id), eq(projectTranscripts.kind, 'context')))
+    .orderBy(desc(projectTranscripts.addedAt)).all();
+}
+
+/** Attach a rendered context file to a customer, replacing any earlier one. */
+export function attachContext(projectId, path, source = null) {
+  db.insert(projectTranscripts)
+    .values({ projectId, path, kind: 'context', source, addedAt: Date.now() })
+    .onConflictDoUpdate({
+      target: [projectTranscripts.projectId, projectTranscripts.path],
+      set: { kind: 'context', source, addedAt: Date.now() },
+    })
+    .run();
+  return contextFor(projectId);
 }
 
 function messagesFor(id) {
@@ -58,6 +86,7 @@ function messagesFor(id) {
 function hydrate(row, { withBody = true } = {}) {
   if (!row) return null;
   const transcripts = transcriptsFor(row.id);
+  const context = contextFor(row.id);
   const messages = withBody ? messagesFor(row.id) : [];
   const messageCount = withBody
     ? messages.length
@@ -71,11 +100,16 @@ function hydrate(row, { withBody = true } = {}) {
     customer: row.customer || '',
     sessionId: row.sessionId,
     transcripts,
+    // What the connectors know about this customer, as files. Carried on the
+    // project so a page can show delivery state beside the call history
+    // without a second round trip.
+    context,
     messages,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     messageCount,
     transcriptCount: transcripts.length,
+    contextCount: context.length,
   };
 }
 
@@ -228,7 +262,7 @@ export function syncFromLibrary({ createMissing = true } = {}) {
     if (added.length) {
       for (const path of added) {
         db.insert(projectTranscripts)
-          .values({ projectId: row.id, path, addedAt: now })
+          .values({ projectId: row.id, path, kind: 'transcript', source: 'gong', addedAt: now })
           .onConflictDoNothing()
           .run();
       }
@@ -239,12 +273,17 @@ export function syncFromLibrary({ createMissing = true } = {}) {
   }
 
   // Drop transcripts whose files have gone, so counts stay honest.
+  //
+  // Scoped to kind 'transcript'. This rebuilds from the sorted tree, and a
+  // context file lives in warp-context and is therefore never in `live` — an
+  // unscoped delete here wiped every CX Portal link on the next sync.
   const live = files.map((f) => f.path);
+  const isTranscript = eq(projectTranscripts.kind, 'transcript');
   if (live.length) {
     db.delete(projectTranscripts)
-      .where(notInArray(projectTranscripts.path, live)).run();
+      .where(and(isTranscript, notInArray(projectTranscripts.path, live))).run();
   } else {
-    db.delete(projectTranscripts).run();
+    db.delete(projectTranscripts).where(isTranscript).run();
   }
 
   const total = Number(

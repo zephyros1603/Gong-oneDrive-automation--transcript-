@@ -19,6 +19,8 @@ import { listProjects } from '../../projects.js';
 import { listSchedules } from '../workflow/store.js';
 import { listGraphs } from '../graph/store.js';
 import { readSettings } from '../../settings.js';
+import { CxPortal } from './cxportal.js';
+import { cxClient } from './cx-client.js';
 
 /** Field kinds the Applications form knows how to render. */
 export const FIELD = {
@@ -117,6 +119,139 @@ const claude = {
         detail: ok ? 'the Claude Code CLI is on PATH and responding' : 'not found — set CLAUDE_BIN',
       }],
     };
+  },
+};
+
+const cxportal = {
+  id: 'cxportal',
+  name: 'CX Portal',
+  vendor: 'Aquera',
+  kind: 'Project tracker',
+  auth: 'Cognito bearer token',
+  capabilities: ['projects', 'tasks', 'customers', 'stations'],
+  tabs: ['Configuration', 'Credentials', 'Data', 'Schema'],
+  dataTab: { label: 'Data', kind: 'cxportal' },
+
+  configSchema: [
+    { key: 'CXPORTAL_HOST', label: 'API host', type: FIELD.TEXT, section: 'Basic Details',
+      hint: 'https://saapi.aquera.com' },
+    { key: 'CXPORTAL_CONSULTANT', label: 'Your name in the tracker', type: FIELD.TEXT, section: 'Config',
+      hint: 'The IC display name, e.g. Sanjan. Used to scope "my projects"' },
+    { key: 'CXPORTAL_HIDE_CLOSED', label: 'Hide closed and blocked', type: FIELD.SELECT,
+      section: 'Config', options: ['on', 'off'],
+      hint: 'On matches the on-screen counts in the portal; off returns everything' },
+  ],
+
+  credentialSchema: [
+    { key: 'CXPORTAL_TOKEN', label: 'Access token', type: FIELD.SECRET, multiline: true,
+      hint: "Cognito accessToken, NOT idToken. In the portal console: copy(localStorage.getItem('accessToken')). Lasts about an hour." },
+    { key: 'CXPORTAL_REFRESH_TOKEN', label: 'Refresh token', type: FIELD.SECRET, multiline: true,
+      hint: "copy(localStorage.getItem('refreshToken')). With this, the access token renews itself and schedules work unattended. Without it this connector only works while you are here to paste a new one." },
+  ],
+
+  async status() {
+    const cfg = loadConfig();
+    const client = cxClient();
+    const t = client.tokenInfo();
+
+    if (!t.present) {
+      return { configured: false, connected: false, detail: 'No token yet' };
+    }
+    if (t.expired) {
+      // With a refresh token this is self-healing, so it is not a failure —
+      // saying "expired" here would send someone to fix what fixes itself.
+      if (cfg.cxRefreshToken) {
+        return {
+          configured: true, connected: true,
+          detail: 'Token renews automatically', expiresAt: t.expiresAt,
+        };
+      }
+      return {
+        configured: true, connected: false,
+        detail: `Token expired ${Math.abs(t.minutesLeft)} min ago — paste a fresh one`,
+        expiresAt: t.expiresAt,
+      };
+    }
+    return {
+      configured: true, connected: true,
+      detail: cfg.cxRefreshToken
+        ? `${t.username || 'signed in'} · renews automatically`
+        : `${t.username || 'signed in'} · ${t.minutesLeft} min left`,
+      expiresAt: t.expiresAt,
+    };
+  },
+
+  async test(overrides = {}) {
+    const cfg = loadConfig();
+    const client = cxClient({
+      host: overrides.CXPORTAL_HOST,
+      token: overrides.CXPORTAL_TOKEN ?? undefined,
+      refreshToken: overrides.CXPORTAL_REFRESH_TOKEN ?? undefined,
+    });
+    const checks = [];
+
+    // Renew first if we can, so the test reports what a *scheduled* run would
+    // experience rather than what this minute happens to look like.
+    if (client.needsRefresh && client.refreshToken) {
+      try {
+        await client.refresh();
+        checks.push({ step: 'refresh', ok: true, detail: 'renewed the access token' });
+      } catch (err) {
+        checks.push({ step: 'refresh', ok: false, detail: err.message });
+        return { ok: false, checks };
+      }
+    }
+    const t = client.tokenInfo();
+
+    if (!t.present) {
+      checks.push({ step: 'token', ok: false, detail: 'no token supplied' });
+      return { ok: false, checks };
+    }
+
+    // Two things go wrong before a request is ever made, and both produce an
+    // indistinguishable 401 if you let them: the wrong token of the pair, and
+    // one that has simply aged out.
+    if (t.tokenUse && t.tokenUse !== 'access') {
+      checks.push({
+        step: 'token', ok: false,
+        detail: `this is the ${t.tokenUse} token — the API only accepts the accessToken`,
+      });
+      return { ok: false, checks };
+    }
+    if (t.expired) {
+      checks.push({
+        step: 'token', ok: false,
+        detail: client.refreshToken
+          ? `expired ${Math.abs(t.minutesLeft)} minutes ago and the refresh did not take`
+          : `expired ${Math.abs(t.minutesLeft)} minutes ago — add a refresh token to renew automatically`,
+      });
+      return { ok: false, checks };
+    }
+    checks.push({
+      step: 'token', ok: true,
+      detail: `${t.username || 'valid'} · expires ${new Date(t.expiresAt).toLocaleTimeString()}`,
+    });
+
+    // The cheapest authenticated call there is.
+    try {
+      await client.unreadCount();
+      checks.push({ step: 'auth', ok: true, detail: 'the API accepted the token' });
+    } catch (err) {
+      checks.push({ step: 'auth', ok: false, detail: err.message });
+      return { ok: false, checks, tokenInfo: t };
+    }
+
+    try {
+      const projects = await client.listProjects({ size: 1 });
+      const n = Array.isArray(projects) ? projects.length
+        : (projects?.items?.length ?? projects?.projects?.length ?? '?');
+      checks.push({ step: 'projects', ok: true, detail: `list_projects answered (${n} in the first page)` });
+    } catch (err) {
+      checks.push({ step: 'projects', ok: false, detail: err.message });
+      return { ok: false, checks, tokenInfo: t };
+    }
+
+    return { ok: true, checks, tokenInfo: t };
   },
 };
 
@@ -251,7 +386,7 @@ const planned = [
 ];
 
 export const CONNECTORS = [
-  gong, claude,
+  gong, claude, cxportal,
   projectsApp, libraryApp, graphApp, automationApp,
   ...planned,
 ];

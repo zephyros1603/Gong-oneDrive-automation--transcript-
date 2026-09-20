@@ -503,6 +503,10 @@ export function runSkill({
       }
 
       if (event.type === 'result') {
+        // The CLI reports token usage alongside cost. Capturing it costs
+        // nothing and is the difference between "what did this cost" and
+        // "why did it cost that".
+        const u = event.usage || {};
         onEvent({
           type: 'done',
           session: event.session_id || session,
@@ -511,6 +515,10 @@ export function runSkill({
           costUsd: event.total_cost_usd,
           durationMs: event.duration_ms,
           turns: event.num_turns,
+          inputTokens: u.input_tokens ?? null,
+          outputTokens: u.output_tokens ?? null,
+          cacheReadTokens: u.cache_read_input_tokens ?? null,
+          cacheWriteTokens: u.cache_creation_input_tokens ?? null,
         });
       }
     }

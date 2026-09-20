@@ -3,18 +3,19 @@
 /**
  * Dashboard — what is happening, in one screen.
  *
- * Every widget here is built from data the system already records. Two that
- * were asked for are deliberately absent until the schema supports them
- * honestly: "transcripts processed" needs per-run file tracking (runs record a
- * file *count*, not paths), and "tokens used" needs claude-runner to capture
- * the usage block the CLI already reports. A widget showing a plausible-looking
- * wrong number is worse than no widget.
+ * Every widget here is built from data the system already records. Two of them
+ * waited on schema: "transcripts processed" needed per-run file paths rather
+ * than a count, and "tokens used" needed claude-runner to keep the usage block
+ * the CLI already reports. Both now exist, and both say so when they have no
+ * history yet rather than showing a confident zero — a plausible-looking wrong
+ * number is worse than no widget.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   FileText, FileDoc, Key, Sparkle, ClockCounterClockwise, CurrencyDollar,
+  Coins, ChartBar,
   Lightning, Warning, ArrowRight, CheckCircle, XCircle,
   DotsSixVertical, EyeSlash, Eye, PencilSimple, ArrowCounterClockwise, Check,
 } from '@phosphor-icons/react';
@@ -28,21 +29,36 @@ import { cn } from '@/lib/utils';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
+/** 1.4M rather than 1,412,338 — a token count is read for its order of magnitude. */
+const compact = (n) => {
+  const v = Number(n) || 0;
+  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+  return String(v);
+};
+
 /**
  * Everything on the dashboard, stat tiles included. One catalogue and one
  * grid: a tile and a panel differ only in how many columns they span, so
  * making them different kinds would mean two drag implementations and a rule
  * about which can be dragged where.
+ *
+ * `self-start` on the one-column tiles is what stops a tile being stretched to
+ * the height of a two-column panel beside it. It only started mattering once
+ * the tile count stopped dividing evenly into rows of four.
  */
 const WIDGETS = [
-  { id: 'transcripts', label: 'Transcripts', span: 'lg:col-span-1' },
-  { id: 'documents', label: 'Documents produced', span: 'lg:col-span-1' },
-  { id: 'session', label: 'Gong session', span: 'lg:col-span-1' },
-  { id: 'skills', label: 'Skills', span: 'lg:col-span-1' },
-  { id: 'automation', label: 'Automation', span: 'lg:col-span-1' },
-  { id: 'spend30', label: 'Spend, 30 days', span: 'lg:col-span-1' },
-  { id: 'runningnow', label: 'Running now', span: 'lg:col-span-1' },
-  { id: 'incomplete', label: 'Runs not completed', span: 'lg:col-span-1' },
+  { id: 'transcripts', label: 'Transcripts', span: 'lg:col-span-1 self-start' },
+  { id: 'documents', label: 'Documents produced', span: 'lg:col-span-1 self-start' },
+  { id: 'session', label: 'Gong session', span: 'lg:col-span-1 self-start' },
+  { id: 'skills', label: 'Skills', span: 'lg:col-span-1 self-start' },
+  { id: 'automation', label: 'Automation', span: 'lg:col-span-1 self-start' },
+  { id: 'spend30', label: 'Spend, 30 days', span: 'lg:col-span-1 self-start' },
+  { id: 'runningnow', label: 'Running now', span: 'lg:col-span-1 self-start' },
+  { id: 'incomplete', label: 'Runs not completed', span: 'lg:col-span-1 self-start' },
+  { id: 'tokens', label: 'Tokens used', span: 'lg:col-span-1 self-start' },
+  { id: 'processed', label: 'Transcripts processed', span: 'lg:col-span-1 self-start' },
   { id: 'spend', label: 'Spend chart', span: 'lg:col-span-2' },
   { id: 'weekday', label: 'Automation by weekday', span: 'lg:col-span-2' },
   { id: 'attention', label: 'Needs attention', span: 'lg:col-span-2' },
@@ -203,6 +219,24 @@ export default function DashboardPage() {
       { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
       : 'not scheduled'}
       href="/automation" />
+    ),
+    tokens: (
+      <Stat icon={Coins} label="Tokens used"
+      value={d.tokens.runs ? compact(d.tokens.total) : '—'}
+      sub={d.tokens.runs
+      ? `${compact(d.tokens.input)} in · ${compact(d.tokens.output)} out · ${compact(d.tokens.cacheRead)} cached`
+      : 'no run has reported tokens yet'} />
+    ),
+    processed: (
+      // Coverage, not throughput. The total says the machine did work; the
+      // uncovered count says which calls nobody has reported on.
+      <Stat icon={ChartBar} label="Transcripts processed"
+      tone={d.processed.uncovered ? 'warn' : 'ok'}
+      value={d.processed.total}
+      sub={d.processed.uncovered
+      ? `${d.processed.uncovered} of ${d.transcripts.total} not yet processed`
+      : `all ${d.transcripts.total} covered`}
+      href="/preview" />
     ),
     spend30: (
       <Stat icon={CurrencyDollar} label="Spend, 30 days"

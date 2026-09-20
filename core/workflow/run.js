@@ -15,10 +15,10 @@ import * as projects from '../../projects.js';
 import * as library from '../../library.js';
 import { runPipeline } from '../../automation.js';
 import { startChatRun } from '../chat.js';
-import { db } from '../db/client.js';
-import { runFiles } from '../db/schema.js';
+import { contextFilesFor } from './context.js';
+import { resolveWindow, within, pullDays } from './window.js';
+import { organizeCxPortal } from '../connectors/cxportal-organize.js';
 
-const WINDOWS = { last2d: 2, last7d: 7, last14d: 14, last30d: 30, all: 0 };
 
 /**
  * Which files a workflow may see.
@@ -28,8 +28,16 @@ const WINDOWS = { last2d: 2, last7d: 7, last14d: 14, last30d: 30, all: 0 };
  * Scope by project, then narrow by age.
  */
 export function resolveScope(scope = {}) {
-  const days = WINDOWS[scope.window] ?? 7;
-  const cutoff = days ? Date.now() - days * 86400e3 : 0;
+  // Sources are a choice, not a label. This used to return transcripts
+  // whatever was ticked, so "CX Portal only" quietly ran with every call
+  // transcript in scope as well — the opposite of what the setting said.
+  const sources = scope.sources || ['transcript'];
+  if (!sources.includes('transcript')) return [];
+
+  // Both bounds, not just a cutoff. A window of "last week" has to exclude
+  // this week's calls as well as everything older, or every report about a
+  // finished week silently includes the days after it.
+  const w = resolveWindow(scope.window);
 
   let paths;
   if (scope.projectId) {
@@ -41,17 +49,35 @@ export function resolveScope(scope = {}) {
       .map((f) => f.path);
   }
 
-  if (!cutoff) return paths.filter((p) => library.isReadable(p));
+  if (!w.from) return paths.filter((p) => library.isReadable(p));
 
   const mtime = new Map(library.listFiles().map((f) => [f.path, f.mtime]));
-  return paths.filter((p) => library.isReadable(p) && (mtime.get(p) ?? 0) >= cutoff);
+  return paths.filter((p) => library.isReadable(p) && within(w, mtime.get(p)));
 }
 
-/** Record what a run actually consumed, so "transcripts processed" is real. */
-function recordFiles(runId, paths) {
-  for (const path of paths) {
-    db.insert(runFiles).values({ runId, path }).run();
-  }
+/** Which of the three situations a run is actually in. */
+export function modeFor(transcripts, context) {
+  if (transcripts && context) return 'combined';
+  if (context) return 'cxportal';
+  return 'transcript';
+}
+
+/**
+ * The prompt the agent receives: the base instruction plus the steer for the
+ * material it was given.
+ *
+ * `combined` replaces the two single-source steers rather than being appended
+ * to them. Stacking all three produced a prompt that asked for a call summary,
+ * then a delivery summary, then a reconciliation of the two — and got three
+ * disconnected sections instead of one document.
+ */
+export function composeInstruction(workflow, { transcripts = 0, context = 0 } = {}) {
+  const base = String(workflow.instruction || '').trim();
+  const extra = workflow.sourceInstructions || {};
+  const mode = modeFor(transcripts, context);
+
+  const steer = String(extra[mode] || '').trim();
+  return [base, steer].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -59,6 +85,40 @@ function recordFiles(runId, paths) {
  */
 export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false } = {}) {
   const isPipeline = workflow.outputs?.kind === 'pipeline';
+
+  // ---- an import workflow ----------------------------------------------
+  // Not every sync ends at the model. This one writes to Warp's own customer
+  // list, so it never touches the engine and costs nothing to run.
+  if (workflow.source === 'cxportal' && workflow.destination === 'projects') {
+    const opts = workflow.pull || {};
+    if (dryRun) return { dryRun: true, ...(await organizeCxPortal({ dryRun: true, window: workflow.scope?.window })) };
+
+    const run = runs.createRun({
+      kind: 'automation',
+      label: workflow.name,
+      meta: { trigger, workflowId: workflow.id, kind: 'import' },
+    });
+
+    (async () => {
+      try {
+        const result = await organizeCxPortal({
+          // Off by default. A tracker customer with no calls is real, but
+          // creating one silently is what filled the Projects list with 135
+          // names nobody recognised.
+          createMissing: opts.createMissing === true,
+          link: opts.link !== false,
+          window: workflow.scope?.window,
+          onEvent: (e) => runs.push(run.id, e),
+        });
+        runs.finish(run.id, { status: 'done', ...result });
+      } catch (err) {
+        runs.push(run.id, { type: 'error', message: err.message });
+        runs.finish(run.id, { status: 'error' });
+      }
+    })();
+
+    return { runId: run.id };
+  }
 
   if (isPipeline) {
     const run = runs.createRun({
@@ -72,7 +132,7 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
       try {
         const result = await runPipeline({
           trigger,
-          daysBack: WINDOWS[workflow.scope?.window] ?? 2,
+          daysBack: pullDays(resolveWindow(workflow.scope?.window)) || 2,
           onEvent: (e) => runs.push(run.id, e),
         });
         runs.push(run.id, { type: 'summary', result });
@@ -87,27 +147,100 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
   }
 
   // ---- a generation workflow ------------------------------------------
-  const files = resolveScope(workflow.scope);
-  if (!files.length) {
-    throw new Error('nothing in scope — no transcripts matched this workflow');
+  const win = resolveWindow(workflow.scope?.window);
+  const wantsGong = (workflow.scope?.sources || ['transcript']).includes('transcript');
+
+  // Fetch before scoping. "Pull before running" was a checkbox that did
+  // nothing: this branch only ever read transcripts that happened to already
+  // be on disk, so a scheduled report covered whatever the last manual pull
+  // left behind rather than the window it was configured with.
+  //
+  // Skipped on a dry run — a preview should not spend a Gong round trip, and
+  // the point of the preview is to show what is already in scope.
+  let pulled = null;
+  if (!dryRun && wantsGong && workflow.pull?.enabled !== false) {
+    try {
+      pulled = await runPipeline({
+        trigger: `workflow:${trigger}`,
+        daysBack: pullDays(win) || 2,
+      });
+    } catch (err) {
+      // A pull failure must not lose the run: there may be perfectly good
+      // transcripts already on disk, and refusing to report on them because
+      // Gong was briefly unreachable is the wrong trade.
+      pulled = { error: err.message };
+    }
   }
+
+  const transcripts = resolveScope(workflow.scope);
+
+  // Everything that is not already a file — the CX Portal tracker today —
+  // rendered per customer and added to the same list, so Claude receives call
+  // transcripts and project state together, grouped by who they belong to.
+  const customers = workflow.scope?.projectId
+    ? [projects.getProject(workflow.scope.projectId)?.name].filter(Boolean)
+    : projects.listProjects().map((p) => p.name);
+
+  const ctx = await contextFilesFor({
+    customerNames: customers,
+    sources: workflow.scope?.sources || [],
+    window: workflow.scope?.window,
+    cxMode: workflow.scope?.cxMode || 'snapshot',
+  });
+
+  const files = [...transcripts, ...ctx.files];
+  if (!files.length) {
+    throw new Error('nothing in scope — no transcripts or context matched this workflow');
+  }
+
+  // What was asked of the agent depends on what it actually received, not on
+  // what was ticked: a workflow set to both sources that finds no tracker rows
+  // this week is a calls-only run, and telling it to reconcile against a
+  // tracker it cannot see is how a report ends up citing nothing.
+  const instruction = composeInstruction(workflow, {
+    transcripts: transcripts.length,
+    context: ctx.files.length,
+  });
   if (dryRun) {
-    return { dryRun: true, files, count: files.length };
+    return {
+      dryRun: true, files, count: files.length,
+      transcripts: transcripts.length, context: ctx.files.length, notes: ctx.notes,
+      mode: modeFor(transcripts.length, ctx.files.length),
+      instruction,
+      window: { label: win.label, from: win.fromDay, to: win.toDay, days: win.days },
+      wouldPull: !wantsGong || workflow.pull?.enabled === false ? 0 : pullDays(win),
+    };
   }
 
   const started = await startChatRun({
     projectId: workflow.scope?.projectId || null,
     actionId: null,
-    message: workflow.instruction,
+    message: instruction,
     skillName: workflow.skill || null,
+    label: workflow.name,
     files,
     resetSession: true,
+    meta: { workflowId: workflow.id, trigger },
   });
 
-  recordFiles(started.runId, files);
+  // startChatRun already recorded these against the same run id; doing it
+  // again here would count every transcript twice.
   runs.push(started.runId, {
-    type: 'workflow', workflowId: workflow.id, name: workflow.name, trigger, files: files.length,
+    type: 'workflow', workflowId: workflow.id, name: workflow.name, trigger,
+    files: files.length, transcripts: transcripts.length, context: ctx.files.length,
+    window: { label: win.label, from: win.fromDay, to: win.toDay },
   });
+  if (pulled) {
+    runs.push(started.runId, {
+      type: 'detail',
+      message: pulled.error
+        ? `Gong pull failed (${pulled.error}) — running on what is already on disk`
+        : `pulled ${pulled.pulled ?? 0} call(s) covering ${win.label.toLowerCase()}`,
+    });
+  }
+  for (const note of ctx.notes) {
+    runs.push(started.runId, { type: 'detail', message: `context: ${note}` });
+  }
 
   return started;
 }

@@ -143,7 +143,10 @@ export function writeSettings(patch) {
  * recorded with whatever was reported (often nothing) and flagged, rather
  * than being dropped — a run that cost money must not vanish from the total.
  */
-export function recordUsage({ actionId, label, costUsd, durationMs, turns, files, cancelled }) {
+export function recordUsage({
+  actionId, label, costUsd, durationMs, turns, files, cancelled,
+  inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
+}) {
   db.insert(usageTable).values({
     at: Date.now(),
     actionId: actionId || '',
@@ -153,6 +156,10 @@ export function recordUsage({ actionId, label, costUsd, durationMs, turns, files
     turns: Number(turns) || 0,
     files: Number(files) || 0,
     cancelled: Boolean(cancelled),
+    inputTokens: inputTokens ?? null,
+    outputTokens: outputTokens ?? null,
+    cacheReadTokens: cacheReadTokens ?? null,
+    cacheWriteTokens: cacheWriteTokens ?? null,
   }).run();
 
   return readSettings();
@@ -185,6 +192,9 @@ export function usageSummary() {
     total: sql`COALESCE(SUM(cost_usd), 0)`,
     n: sql`COUNT(*)`,
     cancelled: sql`COALESCE(SUM(cancelled), 0)`,
+    inTok: sql`COALESCE(SUM(input_tokens), 0)`,
+    outTok: sql`COALESCE(SUM(output_tokens), 0)`,
+    cacheTok: sql`COALESCE(SUM(cache_read_tokens), 0)`,
   }).from(usageTable).get();
 
   const today = db.select({
@@ -202,6 +212,12 @@ export function usageSummary() {
     cancelled: Number(all?.cancelled ?? 0),
     last: recent[0] || null,
     recent,
+    tokens: {
+      input: Number(all?.inTok ?? 0),
+      output: Number(all?.outTok ?? 0),
+      cacheRead: Number(all?.cacheTok ?? 0),
+      total: Number(all?.inTok ?? 0) + Number(all?.outTok ?? 0),
+    },
   };
 }
 

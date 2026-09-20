@@ -220,6 +220,10 @@ export function prune(keepMs = 6 * 3600e3) {
     .where(and(lt(runsTable.endedAt, cutoff), sql`status != 'running'`)).all();
 
   for (const { id } of old) {
+    // run_files is deliberately left behind. This table is a replay buffer;
+    // that one is the record of which transcripts have been processed, and it
+    // has to outlive the six-hour window or the number is meaningless. It
+    // carries its own timestamp so it needs nothing from here.
     db.delete(runEvents).where(eq(runEvents.runId, id)).run();
     db.delete(runsTable).where(eq(runsTable.id, id)).run();
     mem.listeners.delete(id);

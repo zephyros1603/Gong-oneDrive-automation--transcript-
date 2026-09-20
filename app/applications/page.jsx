@@ -18,29 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-
-const MARK = {
-  gong: { bg: 'bg-[#8039df]', text: 'G' },
-  claude: { bg: 'bg-[#d97757]', text: 'C' },
-  jira: { bg: 'bg-[#0052cc]', text: 'J' },
-  m365: { bg: 'bg-[#0f6cbd]', text: 'M' },
-  slack: { bg: 'bg-[#4a154b]', text: 'S' },
-  zoom: { bg: 'bg-[#0b5cff]', text: 'Z' },
-  salesforce: { bg: 'bg-[#00a1e0]', text: 'SF' },
-  servicenow: { bg: 'bg-[#293e40]', text: 'SN' },
-};
-
-export function Mark({ id, size = 44 }) {
-  const m = MARK[id] || { bg: 'bg-muted-foreground', text: id.slice(0, 1).toUpperCase() };
-  return (
-    <span
-      style={{ width: size, height: size, fontSize: size * 0.34 }}
-      className={cn('grid flex-none place-items-center rounded-[13px] font-semibold text-white shadow-sm', m.bg)}
-    >
-      {m.text}
-    </span>
-  );
-}
+import { Mark } from '@/components/Mark.jsx';
 
 /** Green when it works, red when it does not. Nothing else needs saying. */
 function Dot({ ok }) {

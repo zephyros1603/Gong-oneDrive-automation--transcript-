@@ -36,8 +36,15 @@ export const projectTranscripts = sqliteTable('project_transcripts', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   projectId: text('project_id').notNull(),
   path: text('path').notNull(),
+  // 'transcript' is a Gong call; 'context' is rendered from a connector that
+  // is not files — the CX Portal tracker today. They live in one table because
+  // both answer "what may a run about this customer see", but they are pruned
+  // separately: syncFromLibrary rebuilds transcripts from the sorted tree and
+  // would otherwise delete every context file on its next pass.
+  kind: text('kind').notNull().default('transcript'),
+  source: text('source'),                     // 'gong' | 'cxportal' | null
   addedAt: integer('added_at').notNull(),
-}, (t) => [index('pt_project').on(t.projectId)]);
+}, (t) => [index('pt_project').on(t.projectId), index('pt_kind').on(t.kind)]);
 
 /** A turn in a project conversation. */
 export const messages = sqliteTable('messages', {
@@ -101,6 +108,10 @@ export const usage = sqliteTable('usage', {
   turns: integer('turns'),
   files: integer('files'),
   cancelled: integer('cancelled', { mode: 'boolean' }).notNull().default(false),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  cacheReadTokens: integer('cache_read_tokens'),
+  cacheWriteTokens: integer('cache_write_tokens'),
 }, (t) => [index('usage_at').on(t.at)]);
 
 /**
@@ -115,8 +126,20 @@ export const workflows = sqliteTable('workflows', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description').notNull().default(''),
+  // A sync is source → destination. Today only gong → claude exists, but
+  // naming it now is what lets the Workbench list sync *types* as cards
+  // rather than hard-coding the one that happens to exist.
+  source: text('source').notNull().default('gong'),
+  destination: text('destination').notNull().default('claude'),
   skill: text('skill'),                       // installed skill, or null
   instruction: text('instruction').notNull().default(''),
+  // Per-source steers, appended to `instruction` only when that source is
+  // actually in scope. A run over calls alone and a run over the tracker alone
+  // want different things asked of them, and a run over both wants a third
+  // thing — reconciling what was said against what was recorded. One prompt
+  // covering all three says nothing specific about any of them.
+  sourceInstructions: text('source_instructions'),   // JSON {transcript,cxportal,combined}
+  pull: text('pull'),                         // JSON: days, format, organize
   scope: text('scope'),                       // JSON {projectId, sources[], window}
   outputs: text('outputs'),                   // JSON {dir, formats[]}
   builtin: integer('builtin', { mode: 'boolean' }).notNull().default(false),
@@ -143,7 +166,12 @@ export const runFiles = sqliteTable('run_files', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   runId: text('run_id').notNull(),
   path: text('path').notNull(),
-}, (t) => [index('rf_run').on(t.runId)]);
+  // Its own timestamp, deliberately. `runs` is a six-hour replay buffer that
+  // prune() empties, so a row here that leaned on the run for its date would
+  // lose it by the afternoon — and "transcripts processed" would read zero on
+  // a system that had processed hundreds.
+  at: integer('at'),
+}, (t) => [index('rf_run').on(t.runId), index('rf_at').on(t.at)]);
 
 /**
  * A saved graph: a name plus a policy describing what belongs in it.
@@ -161,6 +189,30 @@ export const graphs = sqliteTable('graphs', {
   createdAt: integer('created_at').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+/**
+ * Something a run produced that a person should see before it goes anywhere.
+ *
+ * The argument for this queue is in docs/product-notes.md: at volume a
+ * 90%-accurate system writing straight into a system of record produces wrong
+ * updates faster than anyone notices, and trust is lost once. The goal is not
+ * less human involvement — it is *cheaper* human involvement, which means
+ * approving a diff rather than authoring a document.
+ */
+export const approvals = sqliteTable('approvals', {
+  id: text('id').primaryKey(),
+  runId: text('run_id'),
+  workflowId: text('workflow_id'),
+  projectId: text('project_id'),
+  kind: text('kind').notNull(),            // 'document' | 'email'
+  title: text('title').notNull().default(''),
+  path: text('path'),                      // for documents
+  body: text('body'),                      // for emails, and the diff source
+  status: text('status').notNull().default('pending'),  // pending | approved | rejected
+  note: text('note'),
+  createdAt: integer('created_at').notNull(),
+  decidedAt: integer('decided_at'),
+}, (t) => [index('appr_status').on(t.status, t.createdAt)]);
 
 /** Scheduler outcomes, including the days that were skipped. */
 export const automationHistory = sqliteTable('automation_history', {

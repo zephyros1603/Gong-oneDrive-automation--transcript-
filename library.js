@@ -30,6 +30,10 @@ export function roots(cfg = loadConfig()) {
   return [
     { label: 'by day', path: resolve(cfg.outDir), kind: 'input' },
     { label: 'sorted', path: resolve(cfg.sortedDir), kind: 'input' },
+    // Rendered from connectors that are not files — the CX Portal tracker
+    // today. Readable and previewable like anything else, so a workflow can
+    // put it in scope and a human can check what the agent was given.
+    { label: 'context', path: resolve(join(dirname(cfg.sortedDir), 'warp-context')), kind: 'input' },
     { label: 'documents', path: resolve(cfg.docsDir), kind: 'output' },
     ...extra,
   ].filter((r, i, all) => all.findIndex((o) => o.path === r.path) === i);

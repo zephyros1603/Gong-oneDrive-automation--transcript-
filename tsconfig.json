@@ -33,11 +33,23 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-a/types/**/*.ts",
+    ".next-b/types/**/*.ts",
     ".next-build/types/**/*.ts",
+    ".next-chk/types/**/*.ts",
+    ".next-final/types/**/*.ts",
+    ".next-final2/types/**/*.ts",
+    ".next-prod/types/**/*.ts",
+    ".next-prod2/types/**/*.ts",
     ".next-t/types/**/*.ts",
+    ".next-v/types/**/*.ts",
+    ".next-w/types/**/*.ts",
+    ".next-w2/types/**/*.ts",
+    ".next-w3/types/**/*.ts",
+    ".next-w4/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-chk/types/**/*.ts"
+    ".next-w5/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
