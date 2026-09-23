@@ -13,6 +13,9 @@ ui/_probe.html
 
 # Next.js
 .next/
+# Isolated builds used for testing without disturbing a running dev/prod
+# server (NEXT_DIST_DIR=.next-<name> npx next build) — never real output.
+.next-*/
 next-env.d.ts
 
 # SQLite — the whole application state lives here

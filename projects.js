@@ -41,24 +41,38 @@ function transcriptsFor(id) {
  * stay. Keeping them apart is also what stops syncFromLibrary, which rebuilds
  * transcripts from the sorted tree, from deleting every one of them.
  */
-export function contextFor(id) {
+function filesByKind(id, kind) {
   return db.select({ path: projectTranscripts.path, source: projectTranscripts.source,
                      addedAt: projectTranscripts.addedAt })
     .from(projectTranscripts)
-    .where(and(eq(projectTranscripts.projectId, id), eq(projectTranscripts.kind, 'context')))
+    .where(and(eq(projectTranscripts.projectId, id), eq(projectTranscripts.kind, kind)))
     .orderBy(desc(projectTranscripts.addedAt)).all();
 }
 
-/** Attach a rendered context file to a customer, replacing any earlier one. */
-export function attachContext(projectId, path, source = null) {
+export const contextFor = (id) => filesByKind(id, 'context');
+
+/**
+ * The per-customer digest — a compact, Claude-written summary standing in for
+ * the raw transcripts and tracker rows it was built from. See
+ * core/workflow/digest.js for how it is generated and kept current.
+ */
+export const digestFor = (id) => filesByKind(id, 'digest');
+
+/**
+ * Attach a rendered file to a customer, replacing any earlier one at the same
+ * path. Shared by `context` (the CX Portal tracker view) and `digest` (the
+ * summarized stand-in for everything) — both are "what a run about this
+ * customer may see that isn't a call transcript," and differ only in kind.
+ */
+export function attachContext(projectId, path, source = null, kind = 'context') {
   db.insert(projectTranscripts)
-    .values({ projectId, path, kind: 'context', source, addedAt: Date.now() })
+    .values({ projectId, path, kind, source, addedAt: Date.now() })
     .onConflictDoUpdate({
       target: [projectTranscripts.projectId, projectTranscripts.path],
-      set: { kind: 'context', source, addedAt: Date.now() },
+      set: { kind, source, addedAt: Date.now() },
     })
     .run();
-  return contextFor(projectId);
+  return filesByKind(projectId, kind);
 }
 
 function messagesFor(id) {
@@ -87,6 +101,7 @@ function hydrate(row, { withBody = true } = {}) {
   if (!row) return null;
   const transcripts = transcriptsFor(row.id);
   const context = contextFor(row.id);
+  const digest = digestFor(row.id);
   const messages = withBody ? messagesFor(row.id) : [];
   const messageCount = withBody
     ? messages.length
@@ -104,12 +119,14 @@ function hydrate(row, { withBody = true } = {}) {
     // project so a page can show delivery state beside the call history
     // without a second round trip.
     context,
+    digest,
     messages,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     messageCount,
     transcriptCount: transcripts.length,
     contextCount: context.length,
+    digestCount: digest.length,
   };
 }
 

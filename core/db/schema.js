@@ -238,3 +238,44 @@ export const toMicros = (usd) =>
   usd == null ? null : Math.round(usd * 1e6);
 export const fromMicros = (micros) =>
   micros == null ? null : micros / 1e6;
+
+/**
+ * A notification — a fact worth surfacing without anyone asking for it.
+ *
+ * Exists because a scheduled sync runs unattended by design, and a person who
+ * opens the app hours later has no way to tell "nothing happened" from
+ * "something happened and quietly failed" without one. `runs` cannot serve
+ * this: it is a six-hour buffer, pruned, and per-run rather than global — a
+ * notification has to outlive the run it describes and be visible from any
+ * page, not just the one that started it.
+ */
+export const notifications = sqliteTable('notifications', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),          // 'schedule_started' | 'schedule_done' | 'schedule_error' | 'schedule_missed'
+  title: text('title').notNull(),
+  body: text('body').notNull().default(''),
+  runId: text('run_id'),
+  workflowId: text('workflow_id'),
+  read: integer('read', { mode: 'boolean' }).notNull().default(false),
+  at: integer('at').notNull(),
+}, (t) => [index('notif_at').on(t.at), index('notif_read').on(t.read)]);
+
+/**
+ * A user-authored automation — real JavaScript, run inside a sandbox that
+ * exposes a curated set of functions (core/engine/api.js) rather than the
+ * whole Node runtime. Separate from `workflows`: a workflow is a skill plus a
+ * scope, declarative enough to render as a form; a script is code, for
+ * whoever needs flexibility the form cannot express.
+ */
+export const scripts = sqliteTable('scripts', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  code: text('code').notNull().default(''),
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  lastRunAt: integer('last_run_at'),
+  lastStatus: text('last_status'),        // 'ok' | 'error' | null (never run)
+  lastError: text('last_error'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});

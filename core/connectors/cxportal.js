@@ -28,13 +28,25 @@ const DEFAULT_HOST = 'https://saapi.aquera.com';
  */
 const REFRESH_MARGIN_MS = 5 * 60000;
 
-/** Every action observed on the wire. Only two have known parameters. */
+/**
+ * Every action observed on the wire.
+ *
+ * The first sixteen came from probing the `?action=` dispatcher directly.
+ * The nine after `note_counts` came from a full walk of one project's detail
+ * page (`#!/projects/{PS-ID}`) on 23 Sep 2026 — they need `projectId` (the
+ * internal `proj_…` id from a `customersps` record, not the `PS-####` display
+ * id) except `list_jira_issues`, which is the one call that takes the display
+ * id and project name instead.
+ */
 export const ACTIONS = [
   'list_projects', 'stats', 'dashboard_aggs_v2', 'tc_analysis_aggs',
   'planned_hours', 'list_project_customers', 'customer_enriched',
   'list_stations', 'get_stations_grid_summary', 'list_tasks', 'calendar_tasks',
   'list_audit_logs', 'get_user_filters', 'get_unread_notification_count',
-  'bulk_gong_counts', 'bulk_outlook_next',
+  'bulk_gong_counts', 'bulk_outlook_next', 'note_counts',
+  // project-detail actions, observed 23 Sep 2026
+  'list_profile_avatars', 'task_aggs', 'list_jira_issues', 'list_doc_folders',
+  'list_project_docs', 'list_mention_people', 'list_notes', 'list_assignees',
 ];
 
 export const FILTER_OPERATORS = [
@@ -304,6 +316,83 @@ export class CxPortal {
   stations(params) { return this.action('list_stations', params); }
   savedFilters() { return this.action('get_user_filters'); }
   unreadCount() { return this.action('get_unread_notification_count'); }
+
+  // ---- project-detail actions --------------------------------------------
+  //
+  // All of these take the *internal* project id (`proj_…`, from a
+  // `customersps` record) except `jiraIssues`, which the portal calls with
+  // the display id (`PS-####`) and the project name instead. Observed by
+  // walking one project's detail page end to end; the same shapes are
+  // expected for every project with the id swapped, but only one has been
+  // exercised live.
+
+  /** Hours consumed vs. budget — drives the header's `0 / 20h` bar. */
+  taskAggs(projectId) {
+    return this.action('task_aggs', { projectId });
+  }
+
+  /** The Timeline tab: status/station changes, notes, field-level diffs. */
+  auditLogs(projectId, { from = 0, size = 50 } = {}) {
+    return this.action('list_audit_logs', { projectId, from: String(from), size: String(size) });
+  }
+
+  /** The Tasks tab, sorted by scheduled date by default. */
+  tasksForProject(projectId, { sortField = 'scheduledDate', sortOrder = 'desc', size = 10 } = {}) {
+    return this.action('list_tasks', { projectId, sortField, sortOrder, size: String(size) });
+  }
+
+  /** Linked Jira issues — the one call keyed by display id, not proj_… . */
+  jiraIssues(displayId, projectName, { size = 50 } = {}) {
+    return this.action('list_jira_issues', {
+      projectDisplayId: displayId, projectName, size: String(size),
+    });
+  }
+
+  docFolders(projectId) {
+    return this.action('list_doc_folders', { scope: 'project', scopeId: projectId });
+  }
+
+  projectDocs(projectId) {
+    return this.action('list_project_docs', { projectId });
+  }
+
+  notes(projectId, { size = 500 } = {}) {
+    return this.action('list_notes', { projectId, size: String(size) });
+  }
+
+  /** Assignable people for stations/tasks — distinct from @mention people. */
+  assignees({ size = 500 } = {}) {
+    return this.action('list_assignees', { size: String(size) });
+  }
+
+  mentionPeople() {
+    return this.action('list_mention_people');
+  }
+
+  profileAvatars() {
+    return this.action('list_profile_avatars');
+  }
+
+  /**
+   * Everything the detail page shows for one project, gathered in parallel.
+   *
+   * A failure in one panel must not blank the rest — the Timeline tab being
+   * slow should not also hide the task list — so each call is caught
+   * individually rather than the whole thing failing on `Promise.all`.
+   */
+  async projectDetail(projectId, { displayId, name } = {}) {
+    const safe = (p) => p.catch((err) => ({ error: err.message }));
+    const [taskAggs, audit, tasks, docs, folders, notes, jira] = await Promise.all([
+      safe(this.taskAggs(projectId)),
+      safe(this.auditLogs(projectId)),
+      safe(this.tasksForProject(projectId)),
+      safe(this.projectDocs(projectId)),
+      safe(this.docFolders(projectId)),
+      safe(this.notes(projectId)),
+      displayId ? safe(this.jiraIssues(displayId, name || '')) : Promise.resolve(null),
+    ]);
+    return { taskAggs, audit, tasks, docs, folders, notes, jira };
+  }
 }
 
 /**

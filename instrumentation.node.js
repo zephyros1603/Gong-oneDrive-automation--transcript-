@@ -20,10 +20,11 @@
  */
 
 import * as runs from './runs.js';
-import { tick } from './automation.js';
+import { tick, startPipelineRun } from './automation.js';
 import { tickSchedules } from './core/workflow/scheduler.js';
 import { ensureBuiltins } from './core/workflow/store.js';
 import { killAllNow, cancelAll } from './claude-runner.js';
+import { notifyScheduledRun } from './core/notify.js';
 
 const g = globalThis;
 
@@ -44,8 +45,28 @@ if (!g.__gong_instrumented) {
     try {
       // The legacy single pipeline, kept so an existing automation config does
       // not silently stop working, plus every workflow schedule.
-      tick({ onRun: (run) => console.log(`  · automation started (${run.id})`) });
-      tickSchedules({ onRun: (r) => console.log(`  · schedule fired (${r.runId})`) });
+      //
+      // `tick()` takes a callback *function* it calls to actually start the
+      // run — not an options object. Passing `{ onRun }` here previously threw
+      // `TypeError: startRun is not a function` the moment a slot was due,
+      // which the surrounding try/catch swallowed as a generic "scheduler tick
+      // failed" — and by then `writeAutomation({ lastSlot })` had already run,
+      // so the slot was marked handled without the pipeline ever starting.
+      // That bug is exactly the kind of silent failure notifications exist to
+      // catch, which is how it turned up while wiring these in.
+      tick((opts) => {
+        const run = startPipelineRun(opts);
+        console.log(`  · automation started (${run.id})`);
+        notifyScheduledRun({ runId: run.id, label: 'Daily transcript sync' });
+        return run;
+      });
+
+      tickSchedules({
+        onRun: (r) => {
+          console.log(`  · schedule fired (${r.runId})`);
+          notifyScheduledRun({ runId: r.runId, workflowId: r.workflowId, label: r.name });
+        },
+      });
     } catch (err) {
       console.error('  ! scheduler tick failed:', err?.message || err);
     }

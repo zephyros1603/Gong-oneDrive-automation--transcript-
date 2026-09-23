@@ -151,7 +151,7 @@ export function addSkill({ name, description, body }) {
 export const EMAIL_OPEN = '=== EMAIL ===';
 export const EMAIL_CLOSE = '=== END EMAIL ===';
 
-export function buildPrompt({ skill, instruction, outputDir, files }) {
+export function buildPrompt({ skill, instruction, outputDir, files, wantsDocument = true }) {
   const lines = [
     skill
       ? `${skill}, ${instruction}, and generated report in ${outputDir}`
@@ -166,26 +166,35 @@ export function buildPrompt({ skill, instruction, outputDir, files }) {
     );
   }
 
-  lines.push(
-    '',
-    `Write every generated document into ${outputDir}.`,
-    'Do not use /mnt/user-data or /mnt/skills paths — this is a local machine,',
-    'so use the output directory above and local python for any .docx work.',
-    '',
-    // A covering email is something you paste into a mail client, so a .docx
-    // of it is a file nobody opens. Ask for it inline, fenced by markers the
-    // UI can find, and render it as a copyable email box instead.
-    'Do NOT save the covering email as a file. If you write a covering email,',
-    'put it in your final reply between these exact markers:',
-    '',
-    EMAIL_OPEN,
-    'Subject: <subject line>',
-    '',
-    '<email body>',
-    EMAIL_CLOSE,
-    '',
-    'Only the call notes and reports become documents on disk.',
-  );
+  // This framing pushes the model toward writing a file, which is right for
+  // a skill invocation and wrong for anything that just wants an answer in
+  // the reply. Without the guard, a plain "summarise this" run narrated about
+  // saving a document to `outputDir` instead of just answering — found
+  // building the digest engine, where the whole point was an inline reply.
+  if (wantsDocument) {
+    lines.push(
+      '',
+      `Write every generated document into ${outputDir}.`,
+      'Do not use /mnt/user-data or /mnt/skills paths — this is a local machine,',
+      'so use the output directory above and local python for any .docx work.',
+      '',
+      // A covering email is something you paste into a mail client, so a .docx
+      // of it is a file nobody opens. Ask for it inline, fenced by markers the
+      // UI can find, and render it as a copyable email box instead.
+      'Do NOT save the covering email as a file. If you write a covering email,',
+      'put it in your final reply between these exact markers:',
+      '',
+      EMAIL_OPEN,
+      'Subject: <subject line>',
+      '',
+      '<email body>',
+      EMAIL_CLOSE,
+      '',
+      'Only the call notes and reports become documents on disk.',
+    );
+  } else {
+    lines.push('', 'Answer inline in your reply. Do not write any file to disk for this.');
+  }
 
   return lines.join('\n');
 }
@@ -412,7 +421,7 @@ export function killAllNow() {
  */
 export function runSkill({
   skill, instruction, outputDir, files, sessionId, model, cwd, addDirs = [],
-  maxTurns = 0, jobId, label,
+  maxTurns = 0, jobId, label, wantsDocument = true,
   onEvent = () => {},
 }) {
   const bin = claudeBin();
@@ -422,7 +431,7 @@ export function runSkill({
   // an existing session already has its transcripts in context.
   files = files || [];
 
-  const prompt = buildPrompt({ skill, instruction, outputDir, files });
+  const prompt = buildPrompt({ skill, instruction, outputDir, files, wantsDocument });
   const session = sessionId || randomUUID();
 
   const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose'];

@@ -76,6 +76,10 @@ function defaults() {
     // Hard ceiling on agent turns per run, so a confused run cannot bill
     // without bound. A MOM takes ~12 turns.
     maxTurns: 40,
+    // Where an approved document is copied on approval. Empty means "do not
+    // copy anywhere" — the document stays exactly where the run wrote it, and
+    // approving only marks the queue entry decided.
+    approvalDestDir: '',
   };
 }
 

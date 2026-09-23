@@ -112,6 +112,42 @@ bound. Read `totalPages` instead of assuming six.
   those matter.
 - No write endpoints were touched.
 
+## Project-detail actions (added 23 Sep 2026)
+
+A full walk of one project's detail page (`#!/projects/PS-0684`, customer
+FS-ISAC, internal id `proj_1778234702449_21048eda`) turned up nine more
+actions, all confirmed live against that project. Eight take the **internal**
+project id (`proj_…`, found in a `customersps` record) — `list_jira_issues` is
+the one exception, keyed by the display id (`PS-####`) and project name
+instead, matching how the Tickets tab calls it.
+
+| Action | Response | Method |
+|---|---|---|
+| `task_aggs` | `{ success, total, hours, meetings, customers, projects, consultants }` | `taskAggs(projectId)` |
+| `list_audit_logs` | `{ success, logs[] }` — timeline entries: `logId, entityType, entityId, entityDisplayId, action, userName, customerName, projectName, changes[], summary, timestamp` | `auditLogs(projectId, {from, size})` |
+| `list_tasks` (with `projectId`) | `{ success, tasks[] }` — much wider record than the unscoped call: `dueDate, meetingId, type, createdByEmail, substationName, stationId, connectorSource, …` | `tasksForProject(projectId, {sortField, sortOrder, size})` |
+| `list_project_docs` | `{ success, documents[], total, returned, truncated }` | `projectDocs(projectId)` |
+| `list_doc_folders` | `{ success, scope, scopeId, root, folders[], current }` — a folder tree node shape (`folderId, parentId, name, namePath, level, isRoot`) | `docFolders(projectId)` |
+| `list_notes` | `{ success, notes[], total, from, size }` — `noteId, text, author, authorEmail, createdAt, noteType` | `notes(projectId, {size})` |
+| `list_jira_issues` | `{ success, tasks[], total, size, nextCursor }` — same envelope as `list_tasks`, empty on the sample project | `jiraIssues(displayId, name, {size})` |
+| `list_assignees` | `{ success, assignees[], total, size, nextCursor }` — `assigneeId, name, email` | `assignees({size})` |
+| `list_mention_people` | `{ success, people[], total }` — 151 people on the sample org: `id, name, email, role` | `mentionPeople()` |
+| `list_profile_avatars` | `{ success, byEmail: {email: url}, byId: {id: url} }` | `profileAvatars()` |
+| `note_counts` | unknown — the only POST, still uncaptured | — |
+
+`projectDetail(projectId, {displayId, name})` gathers the first six of these in
+parallel, catching each individually so one slow panel (the Timeline is the
+one to watch) never blanks the rest.
+
+The project **header** itself (name, status, % complete, station list,
+assigned people) and the **Status/Stations Ageing** panels triggered no
+dedicated call during capture — they render from the `customersps` record
+already in hand, plus `list_audit_logs` for the ageing calculation.
+
+`GET /ops/connectors/image` (connector logos) and
+`GET /ops/project-tracker?action=list_profile_avatars` are UI asset lookups,
+not project data, and are not wrapped here.
+
 ## Refresh-token rotation
 
 `refresh()` now persists a rotated refresh token as well as the access token.

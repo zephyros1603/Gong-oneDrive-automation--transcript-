@@ -13,6 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowsClockwise, FolderOpen, FileText, CheckCircle, XCircle, Clock,
+  Coins, SealCheck, WarningCircle,
 } from '@phosphor-icons/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +51,7 @@ export default function BuiltinData({ kind }) {
       library: '/api/tree',
       graph: '/api/graph',
       automation: '/api/schedules',
+      context: '/api/context',
     }[kind];
     if (!url) return;
     try { setData(await fetch(url).then((r) => r.json())); } catch { setData({}); }
@@ -60,7 +62,25 @@ export default function BuiltinData({ kind }) {
   const refresh = async () => {
     setBusy(true);
     try {
-      await fetch(`/api/refresh?scope=${kind === 'projects' ? 'projects' : 'all'}`, { method: 'POST' });
+      if (kind === 'context') {
+        await fetch('/api/context', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ all: true }),
+        });
+      } else {
+        await fetch(`/api/refresh?scope=${kind === 'projects' ? 'projects' : 'all'}`, { method: 'POST' });
+      }
+      await load();
+    } finally { setBusy(false); }
+  };
+
+  const refreshOne = async (projectId) => {
+    setBusy(true);
+    try {
+      await fetch('/api/context', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ projectId, force: true }),
+      });
       await load();
     } finally { setBusy(false); }
   };
@@ -213,6 +233,55 @@ export default function BuiltinData({ kind }) {
           <Link href="/automation" className="mt-3 inline-block text-[12px] text-primary no-underline hover:underline">
             Open Automation →
           </Link>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  /* --------------------------------------------------------------- context */
+  if (kind === 'context') {
+    const list = data.customers || [];
+    const fresh = list.filter((c) => c.fresh).length;
+    const totalSaved = list.filter((c) => c.exists)
+      .reduce((n, c) => n + Math.max(0, c.inputs * 400 - c.tokensEstimate), 0);
+    return (
+      <Card className="rounded-2xl">
+        <CardContent className="p-5">
+          <Header title="Per-customer digests" busy={busy} onRefresh={refresh}
+                  hint="A compact, Claude-written stand-in for a customer's raw transcripts and tracker rows — built once, reused until something actually changes.">
+            <Badge variant="secondary" className="rounded-md">{fresh} of {list.length} current</Badge>
+          </Header>
+          {list.length === 0 && (
+            <p className="py-6 text-center text-[12px] text-muted-foreground">No customers yet.</p>
+          )}
+          <div className="grid gap-2">
+            {list.map((c) => (
+              <div key={c.id}
+                   className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-3">
+                {!c.exists
+                  ? <WarningCircle size={15} weight="duotone" className="flex-none text-muted-foreground" />
+                  : c.fresh
+                  ? <SealCheck size={15} weight="fill" className="flex-none text-ok" />
+                  : <Clock size={15} weight="duotone" className="flex-none text-warn" />}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] font-medium">{c.name}</span>
+                  <span className="block font-mono text-[10.5px] text-muted-foreground">
+                    {c.exists
+                      ? `~${c.tokensEstimate.toLocaleString()} tokens · ${plural(c.inputs, 'source')}`
+                      : c.inputs
+                      ? `not built yet · ${plural(c.inputs, 'source')} available`
+                      : 'nothing to digest yet'}
+                  </span>
+                </span>
+                {!c.fresh && c.inputs > 0 && (
+                  <Button variant="outline" size="sm" onClick={() => refreshOne(c.id)} disabled={busy}
+                          className="flex-none rounded-lg text-[11px]">
+                    {c.exists ? 'Rebuild' : 'Build'}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     );

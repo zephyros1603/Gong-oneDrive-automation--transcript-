@@ -446,10 +446,163 @@ change that adds turns as a cost change.
   fixed-width iframe from a separate static page.
 - `--dump-dom` with `--virtual-time-budget` **hangs** here: the top bar polls
   every 3s, so virtual time never settles. Screenshots work; dump-dom does not.
+- `page.goto(url, { waitUntil: 'networkidle0' })` **hangs too, for a different
+  reason**: `AppShell.jsx` opens `EventSource('/api/notifications/stream')` on
+  mount, and that connection is deliberately never-closing — the whole point
+  of it is to stay open. `networkidle0` waits for zero in-flight connections,
+  which never happens. Use `domcontentloaded` (or `networkidle2`, which
+  tolerates up to two) plus a short explicit wait instead.
+- A build that touches `@univerjs/*` takes noticeably longer than the rest of
+  this app — budget minutes, not seconds, and do not assume a stalled-looking
+  build has hung.
 - Always clean up headless Chrome afterwards — it survives the shell exiting.
   Kill by the `--user-data-dir` path, never by matching "chrome": `lsof -ti` once
   matched Google Chrome Helper and would have killed the real browser.
   Use `lsof -sTCP:LISTEN` when looking for a port's owner.
+
+## The script engine (`core/engine/`)
+
+`core/engine/sandbox.js` runs user-authored JS in a Node `vm` context — no
+`require`, `fs`, or `process`, only a curated `warp` object
+(`core/engine/api.js`). This is **not a security boundary against a malicious
+author** — `vm` is well known to be escapable with effort. It exists to catch
+*accidents* loudly (an accidental `require('fs')` throws instead of silently
+working) for a single-operator server where the scripts are the operator's
+own. Two timeouts matter for different reasons: `vm`'s own `timeout` option
+uses V8 interrupts and is the only thing that stops a synchronous
+`while (true) {}` — without it that loop blocks the whole Node process, not
+just the sandbox, since everything here is single-threaded. A second,
+`Promise.race`-based timeout catches the other failure mode: an `await` that
+never resolves, which the synchronous `vm` timeout cannot see.
+
+Scripts run through `runs.js` like everything else, which is what surfaced a
+real bug in `/api/runs/[id]/stream`: `runs.subscribe()` replays persisted
+events **synchronously**, so a run that finishes before anyone subscribes
+fires its callback before the `const off = subscribe(...)` assignment that
+defines it has completed — a temporal dead zone, `Cannot access 'off' before
+initialization`. Every chat and workflow run had taken long enough to still
+be `'running'` when a client attached, so this path went untested until a
+script fast enough to finish in milliseconds existed. Fixed with `let off;`
+declared before the call. Watch for this pattern anywhere else code does
+`const x = subscribe(id, cb)` and `cb` closes over `x`.
+
+## Digests (`core/workflow/digest.js`) — the token-saving layer
+
+A digest is a compact, Claude-written summary of one customer, standing in
+for their raw transcripts and CX Portal rows on every run after the first.
+Measured on a real customer: ~5,064 raw tokens → ~933 digest tokens, an 82%
+reduction, cached by a content hash of the inputs (`inputsHash()`) so a
+digest is rebuilt only when something it was built from actually changed.
+
+**`silent: true` on `startChatRun` exists because of this feature.** A
+digest build is a real run — it should stream and be cancellable — but it
+must not become a visible turn in the customer's chat, must not steal the
+project's stored `sessionId` out from under whatever real conversation is in
+progress, and its output must never enter the Approvals queue (an internal
+summary is not a document for a person to sign off on). `silent` turns off
+exactly those three side effects.
+
+Building the first digest also surfaced a second, more general bug:
+**`buildPrompt()` in `claude-runner.js` always pushed the model toward
+writing a file**, even with no skill selected and no document wanted — a
+plain "summarise this" prompt got a reply about saving to `outputDir` instead
+of an actual answer inline. `wantsDocument` (default `true`, so every
+existing caller is unaffected) turns that framing off; `silent` runs pass
+`wantsDocument: false`. If a run's reply reads like narration about a file it
+claims to have written rather than the thing you asked for, check this first.
+
+`project_transcripts.kind` gained a third value, `'digest'`, alongside
+`'transcript'` and `'context'` — same table, same reason as before: it has to
+survive `syncFromLibrary()`'s prune, which only touches `kind = 'transcript'`.
+
+A workflow scoped to `sources: ['digest']` skips raw transcripts and the CX
+Portal render entirely for that run — digest mode is a replacement, not an
+addition, which is the whole point.
+
+## Notifications (`core/notify.js`)
+
+A scheduled sync runs unattended by design, so "did anything happen" has to
+be answerable without anyone having watched it run. Two-layer delivery, same
+shape as `runs.js`: persisted (`notifications` table, so a page opened an
+hour later still sees it) and fanned out live over `/api/notifications/stream`
+(`EventSource`, never-closing on purpose) to whoever has a tab open.
+
+**This is why `page.goto(..., { waitUntil: 'networkidle0' })` hangs now** —
+see Testing this thing, below.
+
+`notifyScheduledRun()` is the one function both schedulers call: it posts a
+"started" notification immediately, then subscribes to the run and posts
+"done"/"failed" when it closes. Wiring this in found a real, previously
+latent bug: `instrumentation.node.js` called `tick({ onRun: (run) => ... })`,
+but `tick(startRun)` (in `automation.js`) expects a **callback function** it
+invokes to start the run, not an options object. At the scheduled minute,
+`startRun({trigger:'schedule'})` threw `TypeError: startRun is not a
+function`, silently swallowed by the surrounding try/catch — and by then
+`writeAutomation({ lastSlot })` had already run, so the day's slot was marked
+handled **without the pipeline ever starting**. This had been true since the
+scheduler was written; nothing had exercised the "let's actually watch this
+run" path closely enough to notice. Fixed by passing a real callback.
+
+## Approvals: previews, and where an approved file goes
+
+`app/approvals/page.jsx` dispatches by file extension: `.pdf` →
+`components/PdfViewer.jsx` (`@pdf-viewer/react` — **the package itself is
+marked deprecated by its maintainer**, pointing at a commercial successor at
+react-pdf-kit.dev; it still works, it is not receiving updates), `.docx` →
+`components/DocxViewer.jsx` (`react-doc-viewer`, view-only — the package does
+not write back), `.xlsx` → `components/SpreadsheetViewer.jsx` (Univer,
+editable). Everything else keeps the original markdown/text path.
+
+**Two package-specific traps already found and fixed:**
+
+- `@pdf-viewer/react` renders its pages inside a pdf.js Web Worker. Without
+  `workerUrl` pointed at a real worker script, the worker fails to load
+  *silently* — no page error, a fully-functional toolbar (it already knows
+  the page count), and a blank page underneath. The worker file is copied to
+  `public/pdf.worker.min.mjs` from `pdfjs-dist` at install time; if pdfjs-dist
+  is ever upgraded, re-copy it.
+- `react-doc-viewer`'s default export does **not** come with its own
+  renderers attached — leaving `pluginRenderers` unset answers every file
+  with `No Renderer for file type X`, even though the matching renderer
+  ships in the same package. `DocViewerRenderers` must be imported and passed
+  explicitly; `DocxViewer.jsx` does this inside one `next/dynamic()` call
+  rather than two, because `DocViewerRenderers` is a plain array, not a
+  component — wrapping an array in `dynamic()` hands the caller a component
+  where a value was expected.
+
+**Univer needs the locale strings assembled by hand.** `new Univer({ locale:
+LocaleType.EN_US })` alone throws `[LocaleService]: Locale not initialized`
+at runtime — every registered plugin (`@univerjs/sheets-ui`,
+`@univerjs/ui`, `@univerjs/sheets-formula-ui`, …) ships its own
+`locale/en-US` module of UI strings, and they all have to be `Object.assign`'d
+together and passed as `locales: { enUS: merged }`. There is no default.
+
+**Known incomplete: the sheet grid itself does not render.** With locale
+fixed, `UniverUIPlugin` mounts and its ribbon/toolbar renders — but the
+canvas grid area stays at `height: 0`, and tracing the DOM shows Univer's own
+internal render-target div for the sheet body has **zero children**: nothing
+ever painted into it. This is not the container-sizing issue it initially
+looked like (an inline `height: 520` on the mount container, plus a
+`resize` event dispatched on the next frame to nudge Univer's internal
+`ResizeObserver`, made no difference) — something in `@univerjs/*@1.0.0-rc.0`
+plugin registration or lifecycle is still missing, most likely a required
+call or ordering not evident from the type declarations alone. The
+`xlsxToSnapshot`/`snapshotToXlsx` bridge (`core/engine/xlsx-bridge.js`) and
+the `/api/spreadsheet` GET/POST routes are fully verified independently of
+this — round-tripped real cell data correctly. What is unverified is the
+in-browser editor's rendering; treat it as not working until someone gets the
+grid to paint.
+
+**"Where approved files go" is `settings.approvalDestDir`.** Approving a
+document (`core/approvals/store.js`, `deliverToDestination()`) copies it
+there if set, appending `(1)`, `(2)`, … on a filename collision rather than
+overwriting — verified with two same-named files from different customers.
+Rejecting never copies. The original stays exactly where the run wrote it;
+this is always a copy, never a move. `/api/browse` lists real directories
+anywhere on disk (`homedir()` down), a deliberate widening beyond the
+`library.roots()` model every other file read in this app uses — it is
+read-only (names and directory-ness only, never file contents) and the only
+place in the app that works this way.
 
 ## Known open items
 

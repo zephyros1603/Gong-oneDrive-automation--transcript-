@@ -16,6 +16,9 @@ import { eq, desc, sql, inArray } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { approvals } from '../db/schema.js';
 import { getProject } from '../../projects.js';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
+import { readSettings, expandPath } from '../../settings.js';
 
 const hydrate = (r) => r && ({
   ...r,
@@ -73,7 +76,58 @@ export function decide(id, status, note = '') {
   db.update(approvals)
     .set({ status, note: note || null, decidedAt: Date.now() })
     .where(eq(approvals.id, id)).run();
-  return getApproval(id);
+
+  const row = getApproval(id);
+  if (status === 'approved') deliverToDestination(row);
+  return row;
+}
+
+/**
+ * Copy an approved document to the configured destination, once.
+ *
+ * "Approve" already meant something before this existed — the queue entry
+ * moves out of pending. This adds a second, optional effect on top of that:
+ * if a destination is configured, the file itself lands there too, so
+ * approving is the one action that both signs off on a document and puts it
+ * where it needs to be.
+ *
+ * A name collision appends a counter rather than overwriting — the last thing
+ * an approval flow should do silently is destroy an earlier approved file
+ * because two runs happened to produce the same filename.
+ */
+function deliverToDestination(row) {
+  if (!row || row.kind !== 'document' || !row.path) return;
+
+  const settings = readSettings();
+  const destSetting = String(settings.approvalDestDir || '').trim();
+  if (!destSetting) return;
+
+  if (!existsSync(row.path)) {
+    console.error(`  ! approval ${row.id}: source file is gone, nothing to deliver: ${row.path}`);
+    return;
+  }
+
+  try {
+    const dest = expandPath(destSetting, destSetting);
+    mkdirSync(dest, { recursive: true });
+
+    const base = basename(row.path);
+    const ext = extname(base);
+    const stem = base.slice(0, base.length - ext.length);
+
+    let target = join(dest, base);
+    let n = 1;
+    while (existsSync(target)) {
+      target = join(dest, `${stem} (${n})${ext}`);
+      n += 1;
+    }
+
+    copyFileSync(row.path, target);
+  } catch (err) {
+    // A delivery failure must not undo the approval decision — the document
+    // was reviewed and signed off on; where the copy ends up is secondary.
+    console.error(`  ! approval ${row.id}: could not deliver to destination:`, err.message);
+  }
 }
 
 export function decideMany(ids, status, note = '') {
@@ -82,6 +136,10 @@ export function decideMany(ids, status, note = '') {
   db.update(approvals)
     .set({ status, note: note || null, decidedAt: Date.now() })
     .where(inArray(approvals.id, ids)).run();
+
+  if (status === 'approved') {
+    for (const id of ids) deliverToDestination(getApproval(id));
+  }
   return ids.length;
 }
 

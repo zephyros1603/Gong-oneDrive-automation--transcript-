@@ -70,7 +70,10 @@ export async function tickSchedules({ onRun } = {}) {
       try {
         const started = await runWorkflow(w, { trigger: 'schedule' });
         fired.push({ schedule: s.id, run: started.runId });
-        onRun?.(started);
+        // Carries workflowId and a human label along with the run id — the
+        // callback (core/notify.js today) has no other way to say *which*
+        // automation just fired, since `started` on its own is just a runId.
+        onRun?.({ ...started, workflowId: w.id, name: s.name || w.name });
       } catch (err) {
         console.error(`  ! schedule ${s.name || s.id} failed:`, err.message);
       }

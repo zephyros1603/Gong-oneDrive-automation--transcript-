@@ -18,6 +18,7 @@ import { startChatRun } from '../chat.js';
 import { contextFilesFor } from './context.js';
 import { resolveWindow, within, pullDays } from './window.js';
 import { organizeCxPortal } from '../connectors/cxportal-organize.js';
+import { refreshDigest } from './digest.js';
 
 
 /**
@@ -172,41 +173,84 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
     }
   }
 
-  const transcripts = resolveScope(workflow.scope);
+  const sources = workflow.scope?.sources || ['transcript'];
 
-  // Everything that is not already a file — the CX Portal tracker today —
-  // rendered per customer and added to the same list, so Claude receives call
-  // transcripts and project state together, grouped by who they belong to.
-  const customers = workflow.scope?.projectId
-    ? [projects.getProject(workflow.scope.projectId)?.name].filter(Boolean)
-    : projects.listProjects().map((p) => p.name);
+  const scopedProjects = workflow.scope?.projectId
+    ? [projects.getProject(workflow.scope.projectId)].filter(Boolean)
+    : projects.listProjects();
+  const customers = scopedProjects.map((p) => p.name);
 
-  const ctx = await contextFilesFor({
-    customerNames: customers,
-    sources: workflow.scope?.sources || [],
-    window: workflow.scope?.window,
-    cxMode: workflow.scope?.cxMode || 'snapshot',
-  });
+  let files;
+  let ctxNotes = [];
+  let digestInfo = null;
+  let transcriptCount = 0;
+  let contextCount = 0;
 
-  const files = [...transcripts, ...ctx.files];
+  if (sources.includes('digest')) {
+    // Stands in for both raw transcripts and the CX Portal render, which is
+    // the entire point — a run here pays for one small file per customer
+    // instead of every transcript and the tracker markdown again. Not force-
+    // rebuilt: refreshDigest() itself decides whether the inputs actually
+    // changed, so an unattended schedule rebuilds only when there is
+    // something to rebuild for.
+    const built = [];
+    for (const p of scopedProjects) {
+      try {
+        const r = await refreshDigest(p.id);
+        if (r.path) built.push(r.path);
+        else if (r.skipped) ctxNotes.push(`${p.name}: ${r.skipped}`);
+      } catch (err) {
+        ctxNotes.push(`${p.name}: digest failed — ${err.message}`);
+      }
+    }
+    files = built;
+    digestInfo = { customers: scopedProjects.length, files: built.length };
+    contextCount = built.length;   // reported as "context": a digest stands in for both
+  } else {
+    const transcripts = resolveScope(workflow.scope);
+
+    // Everything that is not already a file — the CX Portal tracker today —
+    // rendered per customer and added to the same list, so Claude receives
+    // call transcripts and project state together, grouped by who they
+    // belong to.
+    const ctx = await contextFilesFor({
+      customerNames: customers,
+      sources,
+      window: workflow.scope?.window,
+      cxMode: workflow.scope?.cxMode || 'snapshot',
+    });
+    files = [...transcripts, ...ctx.files];
+    ctxNotes = ctx.notes;
+    transcriptCount = transcripts.length;
+    contextCount = ctx.files.length;
+  }
+
   if (!files.length) {
-    throw new Error('nothing in scope — no transcripts or context matched this workflow');
+    throw new Error(sources.includes('digest')
+      ? 'nothing in scope — no digest exists yet for these customers (build one from the Context application)'
+      : 'nothing in scope — no transcripts or context matched this workflow');
   }
 
   // What was asked of the agent depends on what it actually received, not on
   // what was ticked: a workflow set to both sources that finds no tracker rows
   // this week is a calls-only run, and telling it to reconcile against a
   // tracker it cannot see is how a report ends up citing nothing.
-  const instruction = composeInstruction(workflow, {
-    transcripts: transcripts.length,
-    context: ctx.files.length,
-  });
+  //
+  // Digest mode skips the per-source steer machinery entirely: there is only
+  // one kind of file in play, and the digest itself already states what came
+  // from where, so a source-specific steer has nothing left to add.
+  const mode = digestInfo ? 'digest' : modeFor(transcriptCount, contextCount);
+  const instruction = digestInfo
+    ? workflow.instruction || ''
+    : composeInstruction(workflow, { transcripts: transcriptCount, context: contextCount });
+
+  const counted = { transcripts: transcriptCount, context: contextCount };
+
   if (dryRun) {
     return {
       dryRun: true, files, count: files.length,
-      transcripts: transcripts.length, context: ctx.files.length, notes: ctx.notes,
-      mode: modeFor(transcripts.length, ctx.files.length),
-      instruction,
+      ...counted, notes: ctxNotes,
+      mode, instruction,
       window: { label: win.label, from: win.fromDay, to: win.toDay, days: win.days },
       wouldPull: !wantsGong || workflow.pull?.enabled === false ? 0 : pullDays(win),
     };
@@ -227,7 +271,7 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
   // again here would count every transcript twice.
   runs.push(started.runId, {
     type: 'workflow', workflowId: workflow.id, name: workflow.name, trigger,
-    files: files.length, transcripts: transcripts.length, context: ctx.files.length,
+    files: files.length, ...counted,
     window: { label: win.label, from: win.fromDay, to: win.toDay },
   });
   if (pulled) {
@@ -238,7 +282,7 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
         : `pulled ${pulled.pulled ?? 0} call(s) covering ${win.label.toLowerCase()}`,
     });
   }
-  for (const note of ctx.notes) {
+  for (const note of ctxNotes) {
     runs.push(started.runId, { type: 'detail', message: `context: ${note}` });
   }
 

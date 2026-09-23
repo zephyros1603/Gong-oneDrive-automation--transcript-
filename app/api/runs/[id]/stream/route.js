@@ -17,7 +17,17 @@ export async function GET(req, { params }) {
   if (!run) return json({ error: 'no such run' }, 404);
 
   return sseResponse((stream) => {
-    const off = runs.subscribe(id, (e) => {
+    // `let`, declared before the call, not `const = subscribe(...)`. subscribe()
+    // replays persisted events *synchronously*, inside the call — so for a run
+    // that finished before anyone subscribed, this callback fires and calls
+    // `off()` before the `const off = …` assignment it came from has finished
+    // evaluating, which is exactly the temporal dead zone: `Cannot access
+    // 'off' before initialization`. Every run so far has taken long enough to
+    // still be 'running' when a client attaches, so this path — replaying a
+    // run that was already finished — went untested until a run fast enough
+    // to hit it existed.
+    let off;
+    off = runs.subscribe(id, (e) => {
       stream.send(e);
       if (e.type === 'finished') {
         stream.send({ type: 'closed-buffer', status: e.status });

@@ -265,7 +265,7 @@ function AppDetail({ id }) {
               ? <GongPull />
               : c.dataTab?.kind === 'cxportal'
               ? <CxPortalData />
-              : ['projects', 'library', 'graph', 'automation'].includes(c.dataTab?.kind)
+              : ['projects', 'library', 'graph', 'automation', 'context'].includes(c.dataTab?.kind)
               ? <BuiltinData kind={c.dataTab.kind} />
               : (
                 <Card className="rounded-2xl">

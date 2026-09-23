@@ -21,6 +21,7 @@ import { listGraphs } from '../graph/store.js';
 import { readSettings } from '../../settings.js';
 import { CxPortal } from './cxportal.js';
 import { cxClient } from './cx-client.js';
+import { digestStatus } from '../workflow/digest.js';
 
 /** Field kinds the Applications form knows how to render. */
 export const FIELD = {
@@ -373,6 +374,29 @@ const automationApp = {
   },
 };
 
+const contextApp = {
+  id: 'context',
+  name: 'Context',
+  vendor: 'Warp',
+  kind: 'Per-customer digests',
+  auth: 'Built in',
+  capabilities: ['digest'],
+  builtin: true,
+  tabs: ['Configuration', 'Data'],
+  dataTab: { label: 'Data', kind: 'context' },
+  configSchema: [],
+  credentialSchema: [],
+  async status() {
+    const rows = digestStatus();
+    const fresh = rows.filter((r) => r.fresh).length;
+    return { configured: true, connected: true, detail: `${fresh} of ${rows.length} digest(s) current` };
+  },
+  async test() {
+    const rows = digestStatus();
+    return { ok: true, checks: [{ step: 'digests', ok: true, detail: `${rows.length} customer(s) tracked` }] };
+  },
+};
+
 /** Not built yet, but shown so the shape of the thing is visible. */
 const planned = [
   { id: 'jira', name: 'Jira', vendor: 'Atlassian', kind: 'Project management',
@@ -387,7 +411,7 @@ const planned = [
 
 export const CONNECTORS = [
   gong, claude, cxportal,
-  projectsApp, libraryApp, graphApp, automationApp,
+  projectsApp, libraryApp, graphApp, automationApp, contextApp,
   ...planned,
 ];
 

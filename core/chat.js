@@ -51,6 +51,13 @@ function resolveOutputDir(requested, settings) {
 }
 
 export async function startChatRun(body) {
+  // A digest build (core/workflow/digest.js) is a real run — it must stream,
+  // be cancellable, cost-track — but it is not a conversation the customer's
+  // chat should remember, must not steal the project's session out from under
+  // whatever real conversation is in progress, and its output is an internal
+  // artifact, not something for a person to approve. `silent` turns off only
+  // those three side effects; everything else about a run stays true.
+  const silent = Boolean(body.silent);
   const settings = readSettings();
   const project = body.projectId ? projects.getProject(body.projectId) : null;
   if (body.projectId && !project) throw new Error('no such project');
@@ -71,9 +78,13 @@ export async function startChatRun(body) {
 
   // Attaching transcripts to a conversation that already has context would
   // resend all of it, so a fresh set of files starts a fresh session.
-  let sessionId = body.sessionId ?? project?.sessionId ?? null;
-  let sessionReset = false;
-  if (body.resetSession || (attached.length && body.filesChanged && sessionId)) {
+  // A silent run never reads the project's stored session either — passing
+  // `sessionId` here at all only matters for a real conversation. It always
+  // starts fresh and never touches `project.sessionId`, so a digest build
+  // running mid-conversation cannot reset what a person is in the middle of.
+  let sessionId = silent ? null : (body.sessionId ?? project?.sessionId ?? null);
+  let sessionReset = silent;
+  if (!silent && (body.resetSession || (attached.length && body.filesChanged && sessionId))) {
     sessionId = null;
     sessionReset = true;
     if (project) projects.resetSession(project.id);
@@ -108,7 +119,7 @@ export async function startChatRun(body) {
 
   // 1. the user's turn, persisted immediately
   let userMessage = null;
-  if (project) {
+  if (project && !silent) {
     userMessage = projects.appendMessage(project.id, {
       role: 'user',
       text: message,
@@ -136,7 +147,7 @@ export async function startChatRun(body) {
 
   // 2. a placeholder reply the stream fills in
   let replyId = null;
-  if (project) {
+  if (project && !silent) {
     replyId = projects.appendMessage(project.id, {
       role: 'claude', text: '', runId: run.id, pending: true,
     }).id;
@@ -167,13 +178,18 @@ export async function startChatRun(body) {
     label,
     cwd: PROJECT_ROOT,
     addDirs: library.roots().map((r) => r.path),
+    // Defaults true — unchanged for every existing caller. Only a silent run
+    // (today, just the digest builder) wants its answer inline rather than
+    // written to disk; see buildPrompt() in claude-runner.js for what this
+    // was fixing.
+    wantsDocument: !silent,
     onEvent: (e) => {
       runs.push(run.id, e);
 
       if (e.type === 'done') {
         reported = e;
-        if (project && e.session) projects.updateProject(project.id, { sessionId: e.session });
-        rememberSession({
+        if (project && e.session && !silent) projects.updateProject(project.id, { sessionId: e.session });
+        if (!silent) rememberSession({
           id: e.session,
           label: `${label} · ${new Date().toLocaleString()}`,
           actionId: action?.id || '',
@@ -217,7 +233,9 @@ export async function startChatRun(body) {
         }
 
         // What the run produced goes to the review queue, not straight out.
-        if (!e.cancelled && reported) {
+        // A silent run's output is consumed by its caller directly — a digest
+        // is not a document or email for anyone to approve.
+        if (!silent && !e.cancelled && reported) {
           try {
             const text = runs.get(run.id)?.text || '';
             const { email } = extractEmail(text);
