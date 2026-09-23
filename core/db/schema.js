@@ -16,12 +16,25 @@
 
 import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 
-/** One customer: their transcripts, their conversation, their Claude session. */
+/**
+ * One CX Portal project assigned to me: its context file, its conversation,
+ * its Claude session.
+ *
+ * `cxpProjectId` is the durable link a fuzzy name match used to stand in
+ * for — once a Warp project is known to be *this* CX Portal project, every
+ * future update looks it up by id instead of re-matching a name each time.
+ * `folder` predates that link (it was how a Gong-only project was keyed) and
+ * stays only because it's `NOT NULL` and SQLite can't drop that without a
+ * table rebuild; a project created from CX Portal fills it with the display
+ * id rather than leaving it meaningless.
+ */
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   folder: text('folder').notNull(),
   customer: text('customer'),
+  cxpProjectId: text('cxp_project_id'),    // internal proj_… id
+  cxpDisplayId: text('cxp_display_id'),    // PS-#### , for jiraIssues() etc.
   /** The Claude conversation this project continues. Null starts fresh. */
   sessionId: text('session_id'),
   createdAt: integer('created_at').notNull(),
@@ -36,11 +49,15 @@ export const projectTranscripts = sqliteTable('project_transcripts', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   projectId: text('project_id').notNull(),
   path: text('path').notNull(),
-  // 'transcript' is a Gong call; 'context' is rendered from a connector that
-  // is not files — the CX Portal tracker today. They live in one table because
-  // both answer "what may a run about this customer see", but they are pruned
-  // separately: syncFromLibrary rebuilds transcripts from the sorted tree and
-  // would otherwise delete every context file on its next pass.
+  // 'transcript' is a Gong call, still recorded per pull for bookkeeping
+  // (dashboard/graph counts) even though chat no longer reads them directly.
+  // 'context' is the one curated context.md a project has — exactly one row,
+  // upserted on the fixed path core/workflow/projectContext.js always writes
+  // to, never appended. They live in one table because both answer "what
+  // happened for this customer", but are pruned separately: syncFromLibrary
+  // only ever touches 'transcript' rows, so a context rebuild is never
+  // caught in its cleanup pass. ('digest' existed here briefly as a third
+  // kind; retired in favour of 'context' doing that job directly.)
   kind: text('kind').notNull().default('transcript'),
   source: text('source'),                     // 'gong' | 'cxportal' | null
   addedAt: integer('added_at').notNull(),
@@ -147,10 +164,22 @@ export const workflows = sqliteTable('workflows', {
   updatedAt: integer('updated_at').notNull(),
 });
 
-/** When a workflow runs. Many schedules may point at one workflow. */
+/**
+ * When a workflow — or a script — runs. Many schedules may point at one
+ * workflow or one script.
+ *
+ * `workflowId` was the only target when this table first shipped, hence
+ * `NOT NULL`; relaxing that would mean rebuilding the table, which SQLite's
+ * `ALTER TABLE` can't do in place. Instead, a schedule that runs a script
+ * stores `workflowId: ''` (never a real id) and a real `scriptId`; a
+ * schedule that runs a workflow stores `scriptId: null`. Exactly one of the
+ * two is ever meaningful — `core/workflow/store.js`'s `saveSchedule()` is the
+ * one place that enforces it.
+ */
 export const schedules = sqliteTable('schedules', {
   id: text('id').primaryKey(),
   workflowId: text('workflow_id').notNull(),
+  scriptId: text('script_id'),
   name: text('name').notNull().default(''),
   enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
   time: text('time').notNull().default('09:00'),
@@ -159,7 +188,7 @@ export const schedules = sqliteTable('schedules', {
   lastSlot: text('last_slot'),                // YYYY-MM-DD already handled
   lastRunAt: integer('last_run_at'),
   createdAt: integer('created_at').notNull(),
-}, (t) => [index('sched_workflow').on(t.workflowId)]);
+}, (t) => [index('sched_workflow').on(t.workflowId), index('sched_script').on(t.scriptId)]);
 
 /** Which transcripts a run actually consumed. */
 export const runFiles = sqliteTable('run_files', {

@@ -9,6 +9,7 @@
 
 import { listSchedules, getWorkflow, markScheduleRan } from './store.js';
 import { runWorkflow } from './run.js';
+import { runStoredScript } from '../engine/store.js';
 import { ymd } from '../../gong.js';
 import * as runs from '../../runs.js';
 
@@ -64,16 +65,26 @@ export async function tickSchedules({ onRun } = {}) {
       if (runs.list({ active: true }).some((r) => r.meta?.scheduleId === s.id)) continue;
 
       markScheduleRan(s.id, ymd(now));
-      const w = getWorkflow(s.workflowId);
-      if (!w) continue;
+
+      // A schedule runs exactly one of a workflow or a script — saveSchedule()
+      // enforces that at write time, so whichever id is set here is the real one.
+      const w = s.scriptId ? null : getWorkflow(s.workflowId);
+      if (!s.scriptId && !w) continue;
 
       try {
-        const started = await runWorkflow(w, { trigger: 'schedule' });
+        const started = s.scriptId
+          ? runStoredScript(s.scriptId, { trigger: 'schedule', scheduleId: s.id })
+          : await runWorkflow(w, { trigger: 'schedule', scheduleId: s.id });
         fired.push({ schedule: s.id, run: started.runId });
-        // Carries workflowId and a human label along with the run id — the
+        // Carries an id and a human label along with the run id — the
         // callback (core/notify.js today) has no other way to say *which*
         // automation just fired, since `started` on its own is just a runId.
-        onRun?.({ ...started, workflowId: w.id, name: s.name || w.name });
+        onRun?.({
+          ...started,
+          workflowId: w?.id || null,
+          scriptId: s.scriptId || null,
+          name: s.name || w?.name || s.script?.name || 'Script',
+        });
       } catch (err) {
         console.error(`  ! schedule ${s.name || s.id} failed:`, err.message);
       }

@@ -19,6 +19,7 @@ import { getProject } from '../../projects.js';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { readSettings, expandPath } from '../../settings.js';
+import { postNoteForCustomer } from '../connectors/cxportal-note.js';
 
 const hydrate = (r) => r && ({
   ...r,
@@ -71,15 +72,60 @@ const check = (status) => {
   return status;
 };
 
-export function decide(id, status, note = '') {
+export async function decide(id, status, note = '') {
   check(status);
   db.update(approvals)
     .set({ status, note: note || null, decidedAt: Date.now() })
     .where(eq(approvals.id, id)).run();
 
-  const row = getApproval(id);
-  if (status === 'approved') deliverToDestination(row);
+  let row = getApproval(id);
+  if (status === 'approved') {
+    deliverToDestination(row);
+    row = await postCxpNoteIfApproved(row);
+  }
   return row;
+}
+
+/**
+ * The only code path in the whole app that can trigger a live CX Portal
+ * write — reached only from here, only on `status === 'approved'`, only for
+ * `kind === 'cxp_note'`. Proposing never posts (`cxportal-note.js`'s
+ * `proposeNote()` only calls `propose()`); rejecting never posts (this
+ * function only runs inside the `status === 'approved'` branch above). A
+ * script cannot reach `postNoteForCustomer()` at all — it isn't on
+ * `core/engine/api.js`'s surface.
+ *
+ * A failed post does not undo the approval, same reasoning as
+ * `deliverToDestination()`: the human's decision stands, the failure is
+ * recorded in `note` so it's visible rather than silently lost.
+ */
+async function postCxpNoteIfApproved(row) {
+  if (!row || row.kind !== 'cxp_note' || !row.body) return row;
+
+  let payload;
+  try { payload = JSON.parse(row.body); } catch { payload = null; }
+  if (!(payload?.projectId || payload?.customerName) || !payload?.text) {
+    db.update(approvals).set({ note: 'malformed note payload — nothing posted' })
+      .where(eq(approvals.id, row.id)).run();
+    return getApproval(row.id);
+  }
+
+  try {
+    // `projectId` carries through the exact CX Portal project a linked
+    // proposal already resolved at propose time — nothing gets re-derived
+    // from a name here. Only a free-text proposal (no `projectId` stored)
+    // falls back to resolving `customerName` again now.
+    const result = await postNoteForCustomer({
+      customerName: payload.customerName, projectId: payload.projectId,
+      text: payload.text, shareToSlack: Boolean(payload.shareToSlack),
+    });
+    db.update(approvals)
+      .set({ note: `posted to ${result.projectName || result.projectId}${result.confidence ? ` (${result.confidence} match)` : ''}` })
+      .where(eq(approvals.id, row.id)).run();
+  } catch (err) {
+    db.update(approvals).set({ note: `ERROR: ${err.message}` }).where(eq(approvals.id, row.id)).run();
+  }
+  return getApproval(row.id);
 }
 
 /**
@@ -130,7 +176,7 @@ function deliverToDestination(row) {
   }
 }
 
-export function decideMany(ids, status, note = '') {
+export async function decideMany(ids, status, note = '') {
   check(status);
   if (!ids?.length) return 0;
   db.update(approvals)
@@ -138,7 +184,11 @@ export function decideMany(ids, status, note = '') {
     .where(inArray(approvals.id, ids)).run();
 
   if (status === 'approved') {
-    for (const id of ids) deliverToDestination(getApproval(id));
+    for (const id of ids) {
+      const row = getApproval(id);
+      deliverToDestination(row);
+      await postCxpNoteIfApproved(row);
+    }
   }
   return ids.length;
 }

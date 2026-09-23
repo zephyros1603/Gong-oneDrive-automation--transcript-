@@ -34,12 +34,12 @@ function transcriptsFor(id) {
 }
 
 /**
- * Context files attached to a customer — the CX Portal view today.
+ * The one curated context file a project has, if it's been built yet.
  *
- * Separate from transcripts because they are maintained separately: these are
- * rewritten whenever the tracker is re-read, while transcripts arrive once and
- * stay. Keeping them apart is also what stops syncFromLibrary, which rebuilds
- * transcripts from the sorted tree, from deleting every one of them.
+ * `attachContext()` always writes to the same fixed path per project
+ * (`core/workflow/projectContext.js`'s `contextPathFor()`), so this is a
+ * single upserted row, never more than one — a project's context is one
+ * file, not a history of them.
  */
 function filesByKind(id, kind) {
   return db.select({ path: projectTranscripts.path, source: projectTranscripts.source,
@@ -49,20 +49,15 @@ function filesByKind(id, kind) {
     .orderBy(desc(projectTranscripts.addedAt)).all();
 }
 
-export const contextFor = (id) => filesByKind(id, 'context');
+export const contextFor = (id) => filesByKind(id, 'context')[0] || null;
 
 /**
- * The per-customer digest — a compact, Claude-written summary standing in for
- * the raw transcripts and tracker rows it was built from. See
- * core/workflow/digest.js for how it is generated and kept current.
- */
-export const digestFor = (id) => filesByKind(id, 'digest');
-
-/**
- * Attach a rendered file to a customer, replacing any earlier one at the same
- * path. Shared by `context` (the CX Portal tracker view) and `digest` (the
- * summarized stand-in for everything) — both are "what a run about this
- * customer may see that isn't a call transcript," and differ only in kind.
+ * Record that a file belongs to a customer, replacing any earlier one at the
+ * same path. Used two ways: `kind='transcript'` per Gong pull (bookkeeping —
+ * counts, "last transcript" — chat no longer reads these directly), and
+ * `kind='context'` for the one context.md a project has, always the same
+ * path per project, so this naturally upserts onto a single row rather than
+ * accumulating one per rebuild.
  */
 export function attachContext(projectId, path, source = null, kind = 'context') {
   db.insert(projectTranscripts)
@@ -101,7 +96,6 @@ function hydrate(row, { withBody = true } = {}) {
   if (!row) return null;
   const transcripts = transcriptsFor(row.id);
   const context = contextFor(row.id);
-  const digest = digestFor(row.id);
   const messages = withBody ? messagesFor(row.id) : [];
   const messageCount = withBody
     ? messages.length
@@ -113,20 +107,18 @@ function hydrate(row, { withBody = true } = {}) {
     name: row.name,
     folder: row.folder,
     customer: row.customer || '',
+    cxpProjectId: row.cxpProjectId || null,
+    cxpDisplayId: row.cxpDisplayId || null,
     sessionId: row.sessionId,
     transcripts,
-    // What the connectors know about this customer, as files. Carried on the
-    // project so a page can show delivery state beside the call history
-    // without a second round trip.
+    // The one curated context.md this project has, or null before its first
+    // creation/update run. `{path, source, addedAt}` — see contextFor().
     context,
-    digest,
     messages,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     messageCount,
     transcriptCount: transcripts.length,
-    contextCount: context.length,
-    digestCount: digest.length,
   };
 }
 
@@ -140,18 +132,27 @@ export function getProject(id) {
   return hydrate(db.select().from(projectsTable).where(eq(projectsTable.id, id)).get());
 }
 
-export function createProject({ name, folder = '', customer = '' }) {
+export function createProject({ name, folder = '', customer = '', cxpProjectId = null, cxpDisplayId = null }) {
   const label = String(name || customer || folder || '').trim();
   if (!label) throw new Error('a project needs a name');
 
   const now = Date.now();
   const id = randomUUID();
   db.insert(projectsTable).values({
-    id, name: label, folder: folder || label, customer: customer || label,
+    id, name: label, folder: folder || cxpDisplayId || label, customer: customer || label,
+    cxpProjectId, cxpDisplayId,
     sessionId: null, createdAt: now, updatedAt: now,
   }).run();
 
   return getProject(id);
+}
+
+/** The Warp project already linked to a CX Portal project, if one exists. */
+export function getProjectByCxpId(cxpProjectId) {
+  if (!cxpProjectId) return null;
+  const row = db.select().from(projectsTable)
+    .where(eq(projectsTable.cxpProjectId, cxpProjectId)).get();
+  return row ? getProject(row.id) : null;
 }
 
 export function updateProject(id, patch) {
@@ -238,13 +239,18 @@ export function resetSession(id) {
 }
 
 /**
- * Create a project for every customer folder that does not have one yet, and
- * attach each folder's transcripts.
+ * Attach every customer folder's transcripts to its project, refreshing the
+ * bookkeeping (`transcriptCount`, "last transcript") counts read.
  *
- * Matching is on the folder name written by organize.js, so a customer whose
- * display name is later edited keeps its transcripts.
+ * `createMissing` defaults **false**: a CX Portal project assigned to me is
+ * now the only thing that creates a Warp project
+ * (`core/workflow/projectContext.js`'s `syncProjectsFromCxp()`). A Gong call
+ * for a customer with no matching CX Portal project no longer creates one on
+ * its own — this only still updates the transcript rows of projects that
+ * already exist. Matching is on the folder name written by organize.js, so a
+ * customer whose display name is later edited keeps its transcripts.
  */
-export function syncFromLibrary({ createMissing = true } = {}) {
+export function syncFromLibrary({ createMissing = false } = {}) {
   const files = listFiles().filter((f) => f.kind === 'input' && f.root === 'sorted');
 
   const byFolder = new Map();

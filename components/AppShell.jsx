@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   SquaresFour, Plugs, Wrench, Eye, ClockCounterClockwise, TreeStructure,
   SealCheck, Plus, List, X, Lightning, FolderOpen, FileArrowDown, Sparkle,
-  Bell, CheckCircle, XCircle, ArrowClockwise, Code,
+  Bell, CheckCircle, XCircle, ArrowClockwise, Code, Terminal,
 } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +38,7 @@ const NAV = [
   { href: '/automation', label: 'Automation', icon: ClockCounterClockwise },
   { href: '/approvals', label: 'Approvals', icon: SealCheck },
   { href: '/engine', label: 'Engine', icon: Code },
+  { href: '/cron-jobs', label: 'Cron Jobs', icon: Terminal },
   { href: '/projects', label: 'Projects', icon: FolderOpen },
   { href: '/preview', label: 'Library', icon: Eye },
 ];

@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { workflows, schedules } from '../db/schema.js';
+import { getScript } from '../engine/store.js';
 
 const parse = (s, f = null) => { try { return s ? JSON.parse(s) : f; } catch { return f; } };
 
@@ -79,19 +80,36 @@ const hydrateSchedule = (r) => r && ({ ...r, days: parse(r.days, [1, 2, 3, 4, 5]
 
 export function listSchedules() {
   return db.select().from(schedules).orderBy(schedules.time).all().map((s) => {
-    const w = getWorkflow(s.workflowId);
-    return { ...hydrateSchedule(s), workflow: w ? { id: w.id, name: w.name, skill: w.skill } : null };
+    const w = s.workflowId ? getWorkflow(s.workflowId) : null;
+    const script = s.scriptId ? getScript(s.scriptId) : null;
+    return {
+      ...hydrateSchedule(s),
+      workflow: w ? { id: w.id, name: w.name, skill: w.skill } : null,
+      script: script ? { id: script.id, name: script.name } : null,
+    };
   });
 }
 
 export const getSchedule = (id) =>
   hydrateSchedule(db.select().from(schedules).where(eq(schedules.id, id)).get());
 
+/**
+ * @param s.workflowId  set to run a workflow — mutually exclusive with scriptId
+ * @param s.scriptId    set to run a script instead — see the `schedules`
+ *   table's own comment in core/db/schema.js for why this is `''` rather
+ *   than `null` on the stored row when a script is what's scheduled.
+ */
 export function saveSchedule(s) {
+  const workflowId = s.workflowId || '';
+  const scriptId = s.scriptId || null;
+  if (!workflowId && !scriptId) throw new Error('a schedule needs a workflow or a script');
+  if (workflowId && scriptId) throw new Error('a schedule runs a workflow or a script, not both');
+
   const id = s.id || randomUUID();
   const row = {
     id,
-    workflowId: s.workflowId,
+    workflowId,
+    scriptId,
     name: String(s.name || '').slice(0, 80),
     enabled: Boolean(s.enabled),
     time: s.time || '09:00',

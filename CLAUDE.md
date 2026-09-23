@@ -22,7 +22,17 @@ npm run migrate      # import legacy projects.json / settings.json (already run)
 node gong.js me --days 7       # the CLI, works with no server running
 ```
 
-## Two traps that have already cost time
+## Three traps that have already cost time
+
+**A bare directory name in `.gitignore` matches everywhere, not just at the
+root.** `transcripts/`, `raw/`, `sorted/`, `documents/`, `logs/` were meant
+to ignore the top-level data directories `gong.js`'s `loadConfig()` writes
+to — but written unanchored, `transcripts/` also matched
+`app/api/gong/transcripts/`, a real route, silently excluding it from every
+commit. `.next-*/` had already been through this once with `.next-final`.
+Fixed by anchoring all five to the root (`/transcripts/`, etc.) — the general
+rule: a data-output directory name that could plausibly recur anywhere else
+in the tree (a route segment, a component folder) needs the leading `/`.
 
 **`fill-mode-backwards` makes elements invisible.** `animate-in fade-in
 fill-mode-backwards` holds an element at the animation's opening frame —
@@ -486,38 +496,67 @@ script fast enough to finish in milliseconds existed. Fixed with `let off;`
 declared before the call. Watch for this pattern anywhere else code does
 `const x = subscribe(id, cb)` and `cb` closes over `x`.
 
-## Digests (`core/workflow/digest.js`) — the token-saving layer
+## Projects, redesigned: one CX Portal project, one context file
 
-A digest is a compact, Claude-written summary of one customer, standing in
-for their raw transcripts and CX Portal rows on every run after the first.
-Measured on a real customer: ~5,064 raw tokens → ~933 digest tokens, an 82%
-reduction, cached by a content hash of the inputs (`inputsHash()`) so a
-digest is rebuilt only when something it was built from actually changed.
+A Warp project used to be a grab-bag — raw transcript files, a raw CX Portal
+render, and a separate digest file, attached individually, existing because
+either a Gong folder appeared or `createMissing` fired. As of this redesign:
+**a CX Portal project assigned to me is the only thing that creates a Warp
+project**, 1:1 — not per customer, per *project* (a customer with two CX
+Portal projects gets two Warp projects). `syncFromLibrary()`'s Gong-only
+creation is retired (`createMissing` now defaults `false`); it still updates
+`transcript`-kind rows for bookkeeping on projects that already exist, it
+just never creates a new one from a Gong folder alone.
 
-**`silent: true` on `startChatRun` exists because of this feature.** A
-digest build is a real run — it should stream and be cancellable — but it
-must not become a visible turn in the customer's chat, must not steal the
-project's stored `sessionId` out from under whatever real conversation is in
-progress, and its output must never enter the Approvals queue (an internal
-summary is not a document for a person to sign off on). `silent` turns off
-exactly those three side effects.
+`projects.cxpProjectId`/`cxpDisplayId` are the durable link a fuzzy name
+match used to stand in for — `core/correlate.js`'s whole confidence-grading
+apparatus existed because the two systems only share a customer name and
+punctuate it differently. Once a Warp project is known to be *this* CX
+Portal project, every later lookup is by id.
 
-Building the first digest also surfaced a second, more general bug:
-**`buildPrompt()` in `claude-runner.js` always pushed the model toward
-writing a file**, even with no skill selected and no document wanted — a
-plain "summarise this" prompt got a reply about saving to `outputDir` instead
-of an actual answer inline. `wantsDocument` (default `true`, so every
-existing caller is unaffected) turns that framing off; `silent` runs pass
-`wantsDocument: false`. If a run's reply reads like narration about a file it
-claims to have written rather than the thing you asked for, check this first.
+**`core/workflow/projectContext.js`** replaces both `context.js`'s per-run CX
+Portal render and `digest.js`'s separate token-saving file — they did
+overlapping jobs (a compact stand-in for raw material), and one project now
+gets exactly one curated file, not two. Two runs, deliberately different
+costs:
 
-`project_transcripts.kind` gained a third value, `'digest'`, alongside
-`'transcript'` and `'context'` — same table, same reason as before: it has to
-survive `syncFromLibrary()`'s prune, which only touches `kind = 'transcript'`.
+- **`syncProjectsFromCxp()`** (the creation run) — walks every CX Portal
+  project assigned to me (reuses `cxportal-organize.js`'s `fetchMine()`
+  unchanged), creates a Warp project for any that doesn't have one, writes a
+  cheap stub `context.md`. No Claude call.
+- **`updateProjectContext(projectId)`** (the update run) — fetches fresh
+  `projectDetail()` data plus whatever Gong transcripts are already
+  pulled+organized for that customer within the window, and has Claude
+  *rewrite* `context.md` in a fixed format (`gong data :` / `existing CXP
+  Data :` / `last updated Date :`). Hash-gated exactly like the old digest
+  was (`inputsHash()`-equivalent over the gong files + a stringified cxp
+  snapshot) — a schedule that fires with nothing new skips the Claude call.
+  Real numbers from the first live run: 2 Gong transcripts + a `projectDetail`
+  snapshot → a dense, fact-only file (staffing gaps, target-date slip
+  history, open blockers, named owners) in one Claude call.
 
-A workflow scoped to `sources: ['digest']` skips raw transcripts and the CX
-Portal render entirely for that run — digest mode is a replacement, not an
-addition, which is the whole point.
+Both are exposed to scripts: `warp.projects.syncFromCxp()`,
+`warp.context.update(id)`, plus `warp.context.read(id)`/`.write(id, text)`
+for direct access. **`silent: true` on `startChatRun` exists because of this
+feature** (inherited from the old digest system unchanged) — the update run
+is a real run, streamed and cancellable, but must not become a visible chat
+turn, must not steal `project.sessionId`, and its output must never enter
+Approvals. `wantsDocument: false` (see `buildPrompt()` in `claude-runner.js`)
+is the other half: without it a silent run's reply narrates about saving a
+file instead of answering inline.
+
+`core/chat.js` auto-attaches a project's one `context.md` to a fresh
+conversation now — it used to attach raw `project.transcripts`, which meant
+a project chat never saw CX Portal data or anything curated at all. This is
+the concrete fix for "the context is where chat is" — before this, it
+wasn't.
+
+`project_transcripts.kind = 'digest'` is retired; `'context'` is now always
+exactly one row per project (upserted on a fixed path, never appended) and
+does that job alone. A workflow scoped to `sources: ['digest']` still works
+— the wire value stays `'digest'` since an already-saved workflow's scope is
+a JSON blob with no migration path — but it now reads each scoped project's
+`context.md` read-only rather than triggering `refreshDigest()`.
 
 ## Notifications (`core/notify.js`)
 
@@ -543,55 +582,111 @@ handled **without the pipeline ever starting**. This had been true since the
 scheduler was written; nothing had exercised the "let's actually watch this
 run" path closely enough to notice. Fixed by passing a real callback.
 
-## Approvals: previews, and where an approved file goes
+## Approvals: previews, editing, and where an approved file goes
 
 `app/approvals/page.jsx` dispatches by file extension: `.pdf` →
 `components/PdfViewer.jsx` (`@pdf-viewer/react` — **the package itself is
 marked deprecated by its maintainer**, pointing at a commercial successor at
-react-pdf-kit.dev; it still works, it is not receiving updates), `.docx` →
-`components/DocxViewer.jsx` (`react-doc-viewer`, view-only — the package does
-not write back), `.xlsx` → `components/SpreadsheetViewer.jsx` (Univer,
-editable). Everything else keeps the original markdown/text path.
+react-pdf-kit.dev; it still works, it is not receiving updates). `.docx` and
+`.xlsx` both go through **one shared component**, `components/UniverViewer.jsx`
+— real, in-browser editing for both, on top of Univer. Everything else keeps
+the original markdown/text path.
 
-**Two package-specific traps already found and fixed:**
+`react-doc-viewer` and the first version of the spreadsheet-only viewer were
+both retired in favour of this — Univer models a Doc and a Sheet unit through
+the same API, so one component with a `kind` prop replaced two.
 
-- `@pdf-viewer/react` renders its pages inside a pdf.js Web Worker. Without
-  `workerUrl` pointed at a real worker script, the worker fails to load
-  *silently* — no page error, a fully-functional toolbar (it already knows
-  the page count), and a blank page underneath. The worker file is copied to
-  `public/pdf.worker.min.mjs` from `pdfjs-dist` at install time; if pdfjs-dist
-  is ever upgraded, re-copy it.
-- `react-doc-viewer`'s default export does **not** come with its own
-  renderers attached — leaving `pluginRenderers` unset answers every file
-  with `No Renderer for file type X`, even though the matching renderer
-  ships in the same package. `DocViewerRenderers` must be imported and passed
-  explicitly; `DocxViewer.jsx` does this inside one `next/dynamic()` call
-  rather than two, because `DocViewerRenderers` is a plain array, not a
-  component — wrapping an array in `dynamic()` hands the caller a component
-  where a value was expected.
+### The bridges: real files in, real files out
 
-**Univer needs the locale strings assembled by hand.** `new Univer({ locale:
-LocaleType.EN_US })` alone throws `[LocaleService]: Locale not initialized`
-at runtime — every registered plugin (`@univerjs/sheets-ui`,
-`@univerjs/ui`, `@univerjs/sheets-formula-ui`, …) ships its own
-`locale/en-US` module of UI strings, and they all have to be `Object.assign`'d
-together and passed as `locales: { enUS: merged }`. There is no default.
+Neither direction is a fidelity-preserving round trip, the same way neither
+was ever claimed to be for the reasons below — both are honest about it in
+their own header comments.
 
-**Known incomplete: the sheet grid itself does not render.** With locale
-fixed, `UniverUIPlugin` mounts and its ribbon/toolbar renders — but the
-canvas grid area stays at `height: 0`, and tracing the DOM shows Univer's own
-internal render-target div for the sheet body has **zero children**: nothing
-ever painted into it. This is not the container-sizing issue it initially
-looked like (an inline `height: 520` on the mount container, plus a
-`resize` event dispatched on the next frame to nudge Univer's internal
-`ResizeObserver`, made no difference) — something in `@univerjs/*@1.0.0-rc.0`
-plugin registration or lifecycle is still missing, most likely a required
-call or ordering not evident from the type declarations alone. The
-`xlsxToSnapshot`/`snapshotToXlsx` bridge (`core/engine/xlsx-bridge.js`) and
-the `/api/spreadsheet` GET/POST routes are fully verified independently of
-this — round-tripped real cell data correctly. What is unverified is the
-in-browser editor's rendering; treat it as not working until someone gets the
-grid to paint.
+- **`core/engine/xlsx-bridge.js`** — `xlsx` (SheetJS) converts real `.xlsx`
+  bytes to and from Univer's workbook snapshot. Keeps values and simple
+  formulas; does not attempt cell formatting.
+- **`core/engine/docx-bridge.js`** — `mammoth` converts `.docx` to structured
+  HTML, which is walked into Univer's document sentinel stream by hand (there
+  is no builder API for this — see below); `docx` (the npm package) converts
+  an edited snapshot back to a real `.docx`. Keeps paragraphs, bold/italic,
+  and **tables** — structure and cell text, verified against real Aquera WSR
+  documents including their Action Item and Go-Live Status tables. Does not
+  keep headers/footers, images, real numbered-list structure, or table
+  borders/shading.
+
+**Univer's document model has no "add a paragraph" builder.** A document body
+is one flat string (`dataStream`) plus arrays of metadata pointing at
+positions inside it: `\r` ends a paragraph, `\n` ends a section, and a table
+is bracketed by a matched pair of unprintable sentinels
+(`DataStreamTreeTokenType`, exported from `@univerjs/core` — `TABLE_START`
+`\u001a`, `TABLE_ROW_START` `\u001b`, `TABLE_CELL_START` `\u001c`, and their
+`_END` counterparts). **`@univerjs/core` exports its own structural validator,
+`validateDocBodyStructure()`, and an empty-document template,
+`getDocsEmptySnapshot()`** — both plain functions, callable from Node with no
+browser involved. Building the sentinel stream by hand and checking it against
+that validator *before ever touching a browser* is what made this bridge
+possible to get right on the first real try rather than through screenshot
+trial-and-error; it caught a real bug immediately (`"Table cell must contain a
+paragraph and section break child"` — a cell needs both `\r` **and** `\n`
+inside it, not just the paragraph mark).
+
+### Getting Univer to actually render — the two real bugs, in order
+
+Two genuinely separate problems, found one after the other. Both mattered;
+fixing only the first still produced a mounted editor with an invisible,
+zero-height canvas.
+
+**1. `new Univer({ locale: LocaleType.EN_US })` alone throws
+`[LocaleService]: Locale not initialized`.** Every registered plugin ships its
+own `locale/en-US` module of UI strings and they must be merged and passed as
+`locales: { enUS: merged }` — there is no default. Solved by switching to
+`@univerjs/presets`' `createUniver({ presets: [...] })`, which is Univer's own
+documented bootstrap and handles this internally; manually calling
+`univer.registerPlugin(...)` for each package, which an earlier version of
+this file did, is what surfaces this the hard way.
+
+**2. Even mounted correctly via presets, the canvas stayed at zero height,
+with every element carrying a class like `univer-flex` computing as
+`display: block` instead of `flex`.** The class names were real, in the DOM,
+correctly applied by Univer's own JS — but **no CSS rule for them existed
+anywhere in the page**. Each `@univerjs/*` package ships this as a genuine,
+separate static file, `lib/index.css` — a real stylesheet on disk, not
+something injected as a side effect of importing the JS, which is what every
+earlier attempt in this file assumed. `components/UniverViewer.jsx` now has
+two static, top-level `import '@univerjs/preset-docs-core/lib/index.css'` /
+`'@univerjs/preset-sheets-core/lib/index.css'` lines — **static, not inside a
+dynamic `import()`**, because webpack only extracts CSS from imports it can
+see at build time. This is the fix that actually made `.univer-flex` compute
+as `flex`; nothing about container sizing or mount timing was ever the
+problem for this half.
+
+**3. Even with CSS loading and the ribbon correctly rendering, the grid
+still didn't paint on any page with more than a couple of nesting levels
+around it** — it worked on a bare, few-levels-deep test page, and stayed at
+zero height on `Approvals` (`Card > CardContent > …`). Confirmed by direct
+measurement that this was not a timing race: the mount container's own
+computed height was a stable, correct, non-zero pixel value (477px) from the
+very first frame, yet Univer's own nested `height: 100%` div one level in
+still resolved to a fraction of it (117px), and the actual canvas three levels
+deeper got zero. A `window.dispatchEvent(new Event('resize'))` — present in
+an earlier version of this file — did nothing, because Univer sizes itself via
+`ResizeObserver`, which reacts to an *observed element's own size changing*,
+never to a window resize event; that call was inert from the moment it was
+written. The fix: give Univer's mount point an **explicit pixel height set via
+React state and a `ResizeObserver`** on the wrapper (`UniverViewer.jsx`),
+instead of a Tailwind `flex-1` (`flex-basis: 0%`, sized by the flex
+algorithm). A flex-basis-derived height, even though it measures correctly at
+its own level, does not reliably propagate through Univer's own several levels
+of nested `height: 100%` divs once enough non-flex ancestors (`Card`,
+`CardContent`) sit above it; an explicit, JS-measured pixel number removes
+that ambiguity regardless of what wraps it. Verified end to end against real
+generated files: a real Aquera WSR `.docx` (paragraphs, bold, and its Action
+Item table, with real row data) and a real `.xlsx` both render and edit
+correctly inside `/approvals`.
+
+If `.univer-flex` (or any `univer-*` class) ever again computes as
+`display: block` in devtools, the CSS import is the first thing to check —
+not the container, not the plugin registration order, not `createUnit`.
 
 **"Where approved files go" is `settings.approvalDestDir`.** Approving a
 document (`core/approvals/store.js`, `deliverToDestination()`) copies it
@@ -603,6 +698,43 @@ anywhere on disk (`homedir()` down), a deliberate widening beyond the
 `library.roots()` model every other file read in this app uses — it is
 read-only (names and directory-ness only, never file contents) and the only
 place in the app that works this way.
+
+### `kind: 'cxp_note'` — the one write, gated
+
+CX Portal's `add_note` action is a real, customer-visible POST. Nothing in
+this app is allowed to call it except one place: `core/approvals/store.js`'s
+`decide()`, and only inside its `status === 'approved'` branch, and only for
+an approval with `kind: 'cxp_note'`. `approvals.kind` has no DB-level
+constraint — `'document' | 'email'` was only ever a comment — so adding a
+third kind needed no schema change, only a new branch in `decide()`.
+
+The chain, end to end: a script calls `warp.cxp.proposeNote({customerName,
+text, shareToSlack})` → `core/connectors/cxportal-note.js`'s `proposeNote()`
+resolves the customer (read-only, `strong`/`exact` match only, same as
+`resolveProject()` always required) and calls `approvals.propose()` — this
+step **never posts**, it only creates a `pending` row with the note stashed
+as JSON in `body`. The Approvals page shows every pending `cxp_note` row in
+an always-visible sidebar section — not gated behind a document being
+selected, not behind any status tab, because a script can propose a note
+whether or not anything else is pending. A human clicking Approve there is
+the **only** thing that calls `postNoteForCustomer()`; clicking Reject never
+does. A failed post doesn't undo the approval — same reasoning as
+`deliverToDestination()` — it's recorded in the row's `note` field instead
+(`ERROR: …`) so it's visible rather than silently lost.
+
+There used to be a per-document "Post a note" button that posted directly on
+click, no approval step at all. It's gone — every CX Portal write goes
+through the queue now, with no exception for a person typing the note by
+hand in the UI. Composing one is a script's job (`warp.cxp.proposeNote()`);
+this page's job is only ever to show what's pending and let a human decide.
+
+Verifying this without ever exercising the real write: propose a note for a
+customer name guaranteed not to resolve (e.g.
+`__no_such_customer_zzz__`), then approve it — `resolveProject()` throws
+before `cx.addNote()`/`postAction()` can ever be reached, which proves the
+full `decide()` → `postCxpNoteIfApproved()` → `postNoteForCustomer()` wiring
+end to end with zero risk of the POST succeeding. This is the same
+verification shape `resolveProject()` itself was already proven with.
 
 ## Known open items
 

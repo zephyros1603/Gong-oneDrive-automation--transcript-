@@ -51,12 +51,13 @@ function resolveOutputDir(requested, settings) {
 }
 
 export async function startChatRun(body) {
-  // A digest build (core/workflow/digest.js) is a real run — it must stream,
-  // be cancellable, cost-track — but it is not a conversation the customer's
-  // chat should remember, must not steal the project's session out from under
-  // whatever real conversation is in progress, and its output is an internal
-  // artifact, not something for a person to approve. `silent` turns off only
-  // those three side effects; everything else about a run stays true.
+  // A context update run (core/workflow/projectContext.js) is a real run — it
+  // must stream, be cancellable, cost-track — but it is not a conversation
+  // the customer's chat should remember, must not steal the project's
+  // session out from under whatever real conversation is in progress, and
+  // its output is an internal artifact, not something for a person to
+  // approve. `silent` turns off only those three side effects; everything
+  // else about a run stays true.
   const silent = Boolean(body.silent);
   const settings = readSettings();
   const project = body.projectId ? projects.getProject(body.projectId) : null;
@@ -80,7 +81,7 @@ export async function startChatRun(body) {
   // resend all of it, so a fresh set of files starts a fresh session.
   // A silent run never reads the project's stored session either — passing
   // `sessionId` here at all only matters for a real conversation. It always
-  // starts fresh and never touches `project.sessionId`, so a digest build
+  // starts fresh and never touches `project.sessionId`, so a context update run
   // running mid-conversation cannot reset what a person is in the middle of.
   let sessionId = silent ? null : (body.sessionId ?? project?.sessionId ?? null);
   let sessionReset = silent;
@@ -90,16 +91,20 @@ export async function startChatRun(body) {
     if (project) projects.resetSession(project.id);
   }
 
-  // A project chat has its customer's transcripts in scope without anyone
-  // attaching them — that is what makes it a project rather than a chat. They
-  // go in as paths, not contents, so an unused transcript costs nothing; the
+  // A project chat has its one context.md in scope without anyone attaching
+  // it — that is what makes it a project rather than a chat. Curated, not
+  // raw transcripts: a project's context file (core/workflow/projectContext.js)
+  // is what "already knows about this customer" means now, kept current by
+  // the creation/update runs rather than by dumping every call transcript
+  // into scope. Paths, not contents, so an unused file costs nothing — the
   // agent reads only what it needs through --add-dir.
   //
-  // Only when starting fresh: a follow-up already has them in context, and
-  // re-sending would pay for the same transcripts twice.
+  // Only when starting fresh: a follow-up already has it in context, and
+  // re-sending would pay for it twice.
   let files = attached;
   if (project && !attached.length && !sessionId) {
-    files = (project.transcripts || []).filter((f) => library.isReadable(f));
+    files = project.context?.path && library.isReadable(project.context.path)
+      ? [project.context.path] : [];
   }
 
   const outputDir = resolveOutputDir(body.outputDir, settings);
@@ -154,8 +159,8 @@ export async function startChatRun(body) {
   }
 
   // What this run was handed, by path. A chat in a project is given that
-  // customer's transcripts without anyone attaching them, and those count as
-  // processed just as much as a scheduled workflow's do.
+  // project's context.md without anyone attaching it, and that counts as
+  // processed just as much as a scheduled workflow's files do.
   recordRunFiles(run.id, files);
 
   const before = library.version('output');
@@ -179,7 +184,7 @@ export async function startChatRun(body) {
     cwd: PROJECT_ROOT,
     addDirs: library.roots().map((r) => r.path),
     // Defaults true — unchanged for every existing caller. Only a silent run
-    // (today, just the digest builder) wants its answer inline rather than
+    // (today, the context updater and script runs) wants its answer inline rather than
     // written to disk; see buildPrompt() in claude-runner.js for what this
     // was fixing.
     wantsDocument: !silent,
@@ -233,8 +238,8 @@ export async function startChatRun(body) {
         }
 
         // What the run produced goes to the review queue, not straight out.
-        // A silent run's output is consumed by its caller directly — a digest
-        // is not a document or email for anyone to approve.
+        // A silent run's output is consumed by its caller directly — a context
+        // update is not a document or email for anyone to approve.
         if (!silent && !e.cancelled && reported) {
           try {
             const text = runs.get(run.id)?.text || '';

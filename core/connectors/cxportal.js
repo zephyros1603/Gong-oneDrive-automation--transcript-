@@ -257,6 +257,86 @@ export class CxPortal {
   }
 
   /**
+   * A write. Everything above this line is `request()` — GET only, and every
+   * action this connector has called until now has been read-only.
+   * `add_note` (posting to a project's Activity Timeline, observed 23 Sep
+   * 2026) is the first write this connector makes, and it is treated with
+   * more caution than the read path deliberately:
+   *
+   *   - it is a **separate method**, never merged into `request()`/`action()`,
+   *     so nothing about the read path's behaviour changes by this existing;
+   *   - it has **never been executed** against the live API. The request
+   *     body below (`projectId`, `text`) is inferred from the composer's
+   *     observed behaviour — a project-scoped rich-text field that posts on
+   *     Enter — not confirmed from a captured request payload, because that
+   *     was never captured. Treat every field name here as a hypothesis
+   *     until it is verified against a real response, the same way an
+   *     unconfirmed filter key is treated in `cxportal-api.md`.
+   *   - `shareToSlack` defaults to **off**. Sharing posts the note to the
+   *     customer's own Slack channel and is described as visible to the
+   *     customer — the highest-stakes option observed, so it is opt-in only,
+   *     never inferred or defaulted on.
+   */
+  async postAction(name, body = {}) {
+    if (this.needsRefresh && this.refreshToken) {
+      await this.refresh().catch(() => {});
+    }
+    if (!this.token) throw new Error('no CX Portal token — paste one in Credentials');
+
+    const url = new URL('/ops/project-tracker', this.host);
+    url.searchParams.set('action', name);
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { ...this.headers, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 401 || res.status === 403) {
+      const info = this.tokenInfo();
+      throw new Error(
+        info.expired
+          ? `the token expired ${Math.abs(info.minutesLeft)} minutes ago — copy a fresh one`
+          : 'the token was rejected — check it is the accessToken, not the idToken'
+      );
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url.pathname}?action=${name}`);
+
+    const text = await res.text();
+    try { return JSON.parse(text); } catch { return text; }
+  }
+
+  /**
+   * Post a note to a project's Activity Timeline.
+   *
+   * @param projectId     the internal `proj_…` id, not the `PS-####` display id
+   * @param text          the note body
+   * @param shareToSlack  also share to the customer's Slack channel —
+   *                      customer-visible; defaults to false
+   */
+  addNote({ projectId, text, shareToSlack = false }) {
+    if (!projectId) throw new Error('addNote: projectId is required');
+    if (!text?.trim()) throw new Error('addNote: text is required');
+    return this.postAction('add_note', { projectId, text, shareToSlack });
+  }
+
+  /**
+   * Note-count badges (e.g. "3 notes" next to a project or station in a
+   * list). The *other* POST observed on this API — `note_counts` was flagged
+   * "unknown, body never captured" in the original 16-action capture, and the
+   * CX Portal API list confirms it as a POST rather than resolving its body.
+   * Whatever `body` shape it actually wants (a list of project/station ids to
+   * batch, most likely) is still a guess. Same rule as `addNote()`: a
+   * separate method over `postAction()`, and **never executed against the
+   * live API** — a count badge is low-stakes compared to a customer-visible
+   * note, but the instruction covering this connector's write path is
+   * unconditional, not risk-graded, so it is honoured the same way here.
+   */
+  noteCounts(body = {}) {
+    return this.postAction('note_counts', body);
+  }
+
+  /**
    * @param filters  array of clause() objects
    * @param logic    'AND' | 'OR' — global, there is no per-clause nesting
    */
@@ -331,9 +411,19 @@ export class CxPortal {
     return this.action('task_aggs', { projectId });
   }
 
-  /** The Timeline tab: status/station changes, notes, field-level diffs. */
-  auditLogs(projectId, { from = 0, size = 50 } = {}) {
-    return this.action('list_audit_logs', { projectId, from: String(from), size: String(size) });
+  /**
+   * The Timeline tab: status/station changes, notes, field-level diffs.
+   * @param entityType  narrows the log — `'station'` returns only station
+   *   status history, observed as its own row in the CX Portal API list
+   *   (`entityType=station&size=200`) rather than as a filter on this one.
+   */
+  auditLogs(projectId, { from = 0, size = 50, entityType } = {}) {
+    return this.action('list_audit_logs', { projectId, from: String(from), size: String(size), entityType });
+  }
+
+  /** Station status changes only, across every station in the project. */
+  stationAuditLogs(projectId, { size = 200 } = {}) {
+    return this.auditLogs(projectId, { size, entityType: 'station' });
   }
 
   /** The Tasks tab, sorted by scheduled date by default. */
@@ -356,8 +446,31 @@ export class CxPortal {
     return this.action('list_project_docs', { projectId });
   }
 
-  notes(projectId, { size = 500 } = {}) {
-    return this.action('list_notes', { projectId, size: String(size) });
+  /**
+   * @param stationId  scopes to one station's comments instead of the
+   *   project's general notes — a separate row in the observed API list
+   *   (`list_notes&stationId=…&projectId=…&size=50`), same action, one more
+   *   parameter.
+   */
+  notes(projectId, { size = 500, stationId } = {}) {
+    return this.action('list_notes', { projectId, size: String(size), stationId });
+  }
+
+  /** Comments on one station — not the project's general notes. */
+  stationNotes(projectId, stationId, { size = 50 } = {}) {
+    return this.notes(projectId, { size, stationId });
+  }
+
+  /**
+   * Connector logos shown next to each integration (Gong, Jira, Salesforce,
+   * …). Outside the `?action=` dispatcher — its own path, `/ops/connectors/image`
+   * — and observed with no documented query params, so whatever `params` a
+   * caller passes goes straight through unvalidated. Never exercised live;
+   * treat every assumption here as unconfirmed, same as `tc_analysis_aggs`
+   * and `calendar_tasks` in `cxportal-api.md`.
+   */
+  connectorImages(params = {}) {
+    return this.request('/ops/connectors/image', params);
   }
 
   /** Assignable people for stations/tasks — distinct from @mention people. */
@@ -374,24 +487,37 @@ export class CxPortal {
   }
 
   /**
-   * Everything the detail page shows for one project, gathered in parallel.
+   * Everything the detail page shows for one project, gathered in **one
+   * call** rather than the caller making nine separate ones — the reason
+   * this method exists at all, and why `stationAuditLogs`/`stationNotes`/
+   * `connectorImages` joined it instead of becoming three more standalone
+   * calls a script or route would have to remember to make.
    *
    * A failure in one panel must not blank the rest — the Timeline tab being
    * slow should not also hide the task list — so each call is caught
    * individually rather than the whole thing failing on `Promise.all`.
+   *
+   * @param displayId  needed only to also fetch linked Jira issues
+   * @param name       the project name, sent alongside `displayId`
+   * @param stationId  needed only to also fetch that one station's comments —
+   *   station-level audit history is always included, since it's scoped to
+   *   the whole project, not one station
    */
-  async projectDetail(projectId, { displayId, name } = {}) {
+  async projectDetail(projectId, { displayId, name, stationId } = {}) {
     const safe = (p) => p.catch((err) => ({ error: err.message }));
-    const [taskAggs, audit, tasks, docs, folders, notes, jira] = await Promise.all([
+    const [taskAggs, audit, stationAudit, tasks, docs, folders, notes, stationNotes, images, jira] = await Promise.all([
       safe(this.taskAggs(projectId)),
       safe(this.auditLogs(projectId)),
+      safe(this.stationAuditLogs(projectId)),
       safe(this.tasksForProject(projectId)),
       safe(this.projectDocs(projectId)),
       safe(this.docFolders(projectId)),
       safe(this.notes(projectId)),
+      stationId ? safe(this.stationNotes(projectId, stationId)) : Promise.resolve(null),
+      safe(this.connectorImages()),
       displayId ? safe(this.jiraIssues(displayId, name || '')) : Promise.resolve(null),
     ]);
-    return { taskAggs, audit, tasks, docs, folders, notes, jira };
+    return { taskAggs, audit, stationAudit, tasks, docs, folders, notes, stationNotes, images, jira };
   }
 }
 

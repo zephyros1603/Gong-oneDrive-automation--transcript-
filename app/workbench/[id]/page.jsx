@@ -44,8 +44,8 @@ const SOURCES = [
   { id: 'transcript', label: 'Gong transcripts', hint: 'Call recordings for the scoped customers' },
   { id: 'cxportal', label: 'CX Portal projects', hint: 'Status, go-live dates, owners and hours from the tracker' },
   {
-    id: 'digest', label: 'Digest (cheaper)',
-    hint: 'A pre-summarized stand-in for the two above — built once per customer, reused until new material arrives. Selecting this skips raw transcripts and tracker rows for that customer.',
+    id: 'digest', label: 'Project context (cheaper)',
+    hint: 'Each project\'s one curated context.md — Gong calls and CX Portal state already merged by the update run. Selecting this skips raw transcripts and tracker rows for that customer; it does not rebuild the file, only reads whatever it currently says.',
   },
   { id: 'document', label: 'Previous documents', hint: 'What this workflow produced before, so reports build on each other' },
 ];

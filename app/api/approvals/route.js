@@ -13,9 +13,9 @@ export async function POST(req) {
   const body = await readBody(req);
   try {
     if (Array.isArray(body.ids)) {
-      return json({ decided: decideMany(body.ids, body.status, body.note), counts: counts() });
+      return json({ decided: await decideMany(body.ids, body.status, body.note), counts: counts() });
     }
-    return json({ approval: decide(body.id, body.status, body.note), counts: counts() });
+    return json({ approval: await decide(body.id, body.status, body.note), counts: counts() });
   } catch (err) {
     return fail(err);
   }

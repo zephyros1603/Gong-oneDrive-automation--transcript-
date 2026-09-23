@@ -18,7 +18,6 @@ import { startChatRun } from '../chat.js';
 import { contextFilesFor } from './context.js';
 import { resolveWindow, within, pullDays } from './window.js';
 import { organizeCxPortal } from '../connectors/cxportal-organize.js';
-import { refreshDigest } from './digest.js';
 
 
 /**
@@ -83,8 +82,12 @@ export function composeInstruction(workflow, { transcripts = 0, context = 0 } = 
 
 /**
  * @returns {Promise<{runId: string}>} — follow it through runs.subscribe().
+ * @param scheduleId  set only when the scheduler is the caller — carried into
+ *   every run this produces so core/workflow/scheduler.js's double-fire
+ *   guard can recognise a still-running schedule and skip re-firing it on
+ *   the next tick, rather than checking a field nothing ever set.
  */
-export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false } = {}) {
+export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false, scheduleId = null } = {}) {
   const isPipeline = workflow.outputs?.kind === 'pipeline';
 
   // ---- an import workflow ----------------------------------------------
@@ -97,7 +100,7 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
     const run = runs.createRun({
       kind: 'automation',
       label: workflow.name,
-      meta: { trigger, workflowId: workflow.id, kind: 'import' },
+      meta: { trigger, workflowId: workflow.id, kind: 'import', scheduleId },
     });
 
     (async () => {
@@ -125,7 +128,7 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
     const run = runs.createRun({
       kind: 'automation',
       label: workflow.name,
-      meta: { trigger, workflowId: workflow.id },
+      meta: { trigger, workflowId: workflow.id, scheduleId },
     });
 
     // Fire and forget: the caller follows the run, it does not await the work.
@@ -187,25 +190,20 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
   let contextCount = 0;
 
   if (sources.includes('digest')) {
-    // Stands in for both raw transcripts and the CX Portal render, which is
-    // the entire point — a run here pays for one small file per customer
-    // instead of every transcript and the tracker markdown again. Not force-
-    // rebuilt: refreshDigest() itself decides whether the inputs actually
-    // changed, so an unattended schedule rebuilds only when there is
-    // something to rebuild for.
+    // The wire value stays 'digest' — an already-saved workflow's scope is a
+    // JSON blob with no migration path — but what it reads is now each
+    // project's one context.md (core/workflow/projectContext.js), not a
+    // separately-built digest file. Read-only here: a run does not rebuild
+    // a stale context on the fly, that is the scheduled update run's job —
+    // this just uses whatever the most recent one says.
     const built = [];
     for (const p of scopedProjects) {
-      try {
-        const r = await refreshDigest(p.id);
-        if (r.path) built.push(r.path);
-        else if (r.skipped) ctxNotes.push(`${p.name}: ${r.skipped}`);
-      } catch (err) {
-        ctxNotes.push(`${p.name}: digest failed — ${err.message}`);
-      }
+      if (p.context?.path) built.push(p.context.path);
+      else ctxNotes.push(`${p.name}: no context file yet — run the update for this project first`);
     }
     files = built;
     digestInfo = { customers: scopedProjects.length, files: built.length };
-    contextCount = built.length;   // reported as "context": a digest stands in for both
+    contextCount = built.length;   // reported as "context": a project context file stands in for both
   } else {
     const transcripts = resolveScope(workflow.scope);
 
@@ -264,7 +262,7 @@ export async function runWorkflow(workflow, { trigger = 'manual', dryRun = false
     label: workflow.name,
     files,
     resetSession: true,
-    meta: { workflowId: workflow.id, trigger },
+    meta: { workflowId: workflow.id, trigger, scheduleId },
   });
 
   // startChatRun already recorded these against the same run id; doing it

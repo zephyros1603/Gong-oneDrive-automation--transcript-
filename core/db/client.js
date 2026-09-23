@@ -244,12 +244,17 @@ const ADDED_COLUMNS = [
   ['project_transcripts', 'kind', "TEXT NOT NULL DEFAULT 'transcript'"],
   ['project_transcripts', 'source', 'TEXT'],
   ['workflows', 'source_instructions', 'TEXT'],
+  ['schedules', 'script_id', 'TEXT'],
+  ['projects', 'cxp_project_id', 'TEXT'],
+  ['projects', 'cxp_display_id', 'TEXT'],
 ];
 
 /** Indexes over columns that ADDED_COLUMNS introduces. */
 const ADDED_INDEXES = `
 CREATE INDEX IF NOT EXISTS rf_at ON run_files (at);
 CREATE INDEX IF NOT EXISTS pt_kind ON project_transcripts (kind);
+CREATE INDEX IF NOT EXISTS sched_script ON schedules (script_id);
+CREATE INDEX IF NOT EXISTS proj_cxp ON projects (cxp_project_id);
 `;
 
 function migrateColumns(sqlite) {

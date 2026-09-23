@@ -20,7 +20,30 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { kb, ago, plural, stripName } from '@/lib/format.js';
+import { normalise } from '@/core/correlate.js';
 import { cn } from '@/lib/utils';
+
+/**
+ * Grouped by customer (normalise()-keyed, same fold `app/projects/page.jsx`
+ * uses) rather than flat — a customer routinely has several CX Portal
+ * projects, and different customers routinely share a project *name* since
+ * it names the integration ("Paycor/Entra ID"), not the account. A flat grid
+ * of those reads as unlabelled duplicates.
+ */
+function groupByCustomer(list) {
+  const byKey = new Map();
+  for (const p of list) {
+    const raw = p.customer || p.name;
+    const key = normalise(raw) || raw;
+    if (!byKey.has(key)) byKey.set(key, { label: raw, cxpLabel: null, projects: [] });
+    const g = byKey.get(key);
+    if (p.cxpProjectId && !g.cxpLabel) g.cxpLabel = raw;
+    g.projects.push(p);
+  }
+  return [...byKey.values()]
+    .map((g) => ({ customer: g.cxpLabel || g.label, projects: g.projects.sort((a, b) => a.name.localeCompare(b.name)) }))
+    .sort((a, b) => a.customer.localeCompare(b.customer));
+}
 
 function Header({ title, hint, onRefresh, busy, children }) {
   return (
@@ -90,26 +113,41 @@ export default function BuiltinData({ kind }) {
   /* ------------------------------------------------------------ projects */
   if (kind === 'projects') {
     const list = data.projects || [];
+    const groups = groupByCustomer(list);
     return (
       <Card className="rounded-2xl">
         <CardContent className="p-5">
           <Header title="Customer workspaces" busy={busy} onRefresh={refresh}
-                  hint="Created from the grouped transcript folders. Refresh re-reads them." >
+                  hint="One Warp project per CX Portal project assigned to you, grouped by customer.">
             <Badge variant="secondary" className="rounded-md">{list.length}</Badge>
           </Header>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {list.map((p) => (
-              <Link key={p.id} href="/projects"
-                    className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-3 no-underline
-                               transition-colors hover:border-primary/40">
-                <FolderOpen size={15} weight="duotone" className="flex-none text-primary" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-medium">{p.name}</span>
-                  <span className="block font-mono text-[10.5px] text-muted-foreground">
-                    {plural(p.transcriptCount, 'transcript')} · {plural(p.messageCount, 'message')}
+          <div className="space-y-4">
+            {groups.map((g) => (
+              <div key={g.customer}>
+                <div className="mb-1.5 flex items-center gap-1.5">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {g.customer}
                   </span>
-                </span>
-              </Link>
+                  {g.projects.length > 1 && (
+                    <span className="font-mono text-[10px] text-muted-foreground">{g.projects.length}</span>
+                  )}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {g.projects.map((p) => (
+                    <Link key={p.id} href="/projects"
+                          className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-3 no-underline
+                                     transition-colors hover:border-primary/40">
+                      <FolderOpen size={15} weight="duotone" className="flex-none text-primary" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12.5px] font-medium">{p.name}</span>
+                        <span className="block font-mono text-[10.5px] text-muted-foreground">
+                          {plural(p.transcriptCount, 'transcript')} · {plural(p.messageCount, 'message')}
+                        </span>
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </CardContent>
@@ -241,39 +279,35 @@ export default function BuiltinData({ kind }) {
   /* --------------------------------------------------------------- context */
   if (kind === 'context') {
     const list = data.customers || [];
-    const fresh = list.filter((c) => c.fresh).length;
-    const totalSaved = list.filter((c) => c.exists)
-      .reduce((n, c) => n + Math.max(0, c.inputs * 400 - c.tokensEstimate), 0);
+    const built = list.filter((c) => c.exists).length;
     return (
       <Card className="rounded-2xl">
         <CardContent className="p-5">
-          <Header title="Per-customer digests" busy={busy} onRefresh={refresh}
-                  hint="A compact, Claude-written stand-in for a customer's raw transcripts and tracker rows — built once, reused until something actually changes.">
-            <Badge variant="secondary" className="rounded-md">{fresh} of {list.length} current</Badge>
+          <Header title="Per-project context" busy={busy} onRefresh={refresh}
+                  hint="One curated file per CX Portal project — Gong calls and tracker state, kept current by the update run.">
+            <Badge variant="secondary" className="rounded-md">{built} of {list.length} built</Badge>
           </Header>
           {list.length === 0 && (
-            <p className="py-6 text-center text-[12px] text-muted-foreground">No customers yet.</p>
+            <p className="py-6 text-center text-[12px] text-muted-foreground">No projects yet.</p>
           )}
           <div className="grid gap-2">
             {list.map((c) => (
               <div key={c.id}
                    className="flex items-center gap-2.5 rounded-xl border border-border bg-card p-3">
-                {!c.exists
+                {!c.linked
                   ? <WarningCircle size={15} weight="duotone" className="flex-none text-muted-foreground" />
-                  : c.fresh
+                  : c.exists
                   ? <SealCheck size={15} weight="fill" className="flex-none text-ok" />
                   : <Clock size={15} weight="duotone" className="flex-none text-warn" />}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] font-medium">{c.name}</span>
                   <span className="block font-mono text-[10.5px] text-muted-foreground">
                     {c.exists
-                      ? `~${c.tokensEstimate.toLocaleString()} tokens · ${plural(c.inputs, 'source')}`
-                      : c.inputs
-                      ? `not built yet · ${plural(c.inputs, 'source')} available`
-                      : 'nothing to digest yet'}
+                      ? `~${c.tokensEstimate.toLocaleString()} tokens${c.updatedAt ? ` · updated ${new Date(c.updatedAt).toLocaleDateString()}` : ''}`
+                      : c.linked ? 'not built yet' : 'no CX Portal link'}
                   </span>
                 </span>
-                {!c.fresh && c.inputs > 0 && (
+                {c.linked && (
                   <Button variant="outline" size="sm" onClick={() => refreshOne(c.id)} disabled={busy}
                           className="flex-none rounded-lg text-[11px]">
                     {c.exists ? 'Rebuild' : 'Build'}

@@ -9,9 +9,10 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Plus, CheckCircle, XCircle, Clock, Play, Trash, FloppyDisk, CaretRight,
+  Plus, CheckCircle, XCircle, Clock, Play, Trash, FloppyDisk, CaretRight, Code,
 } from '@phosphor-icons/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -29,8 +30,12 @@ import { cn } from '@/lib/utils';
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function AutomationPage() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   const [schedules, setSchedules] = useState(null);
   const [workflows, setWorkflows] = useState([]);
+  const [scripts, setScripts] = useState([]);
   const [selected, setSelected] = useState(null);
   const [draft, setDraft] = useState(null);
   const [runs, setRuns] = useState([]);
@@ -45,7 +50,10 @@ export default function AutomationPage() {
 
   const run = useRunStream(activeRun, {
     onEvent: (e) => {
-      if (['step', 'detail', 'file', 'error', 'summary'].includes(e.type)) {
+      // 'step'/'detail'/'file'/'summary' are workflow-run events
+      // (core/workflow/run.js); 'call'/'log'/'result' are a script's
+      // (core/engine/sandbox.js) — a schedule can fire either kind now.
+      if (['step', 'detail', 'file', 'error', 'summary', 'call', 'log', 'result'].includes(e.type)) {
         setLog((l) => [...l, e]);
       }
     },
@@ -54,19 +62,53 @@ export default function AutomationPage() {
 
   const load = useCallback(async () => {
     try {
-      const [s, w, r] = await Promise.all([
+      const [s, w, sc, r] = await Promise.all([
         fetch('/api/schedules').then((x) => x.json()),
         fetch('/api/workflows').then((x) => x.json()),
+        fetch('/api/scripts').then((x) => x.json()),
         fetch('/api/runs').then((x) => x.json()),
       ]);
       setSchedules(s.schedules || []);
       setWorkflows(w.workflows || []);
-      setRuns((r.runs || []).filter((x) => x.kind === 'automation'));
+      setScripts(sc.scripts || []);
+      setRuns((r.runs || []).filter((x) => x.kind === 'automation' || x.kind === 'script'));
       setSelected((cur) => cur || s.schedules?.[0]?.id || null);
-    } catch { setSchedules([]); }
+      return s.schedules || [];
+    } catch { setSchedules([]); return []; }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  /**
+   * Arriving from the Engine page's "Schedule this script" button
+   * (`/automation?script=<id>`) — reuse an existing schedule for that script
+   * if one exists, otherwise create one so there's something to configure
+   * immediately rather than a blank "pick a schedule" state.
+   */
+  useEffect(() => {
+    const scriptId = searchParams.get('script');
+    if (!scriptId || !schedules) return;
+
+    (async () => {
+      const existing = schedules.find((s) => s.scriptId === scriptId);
+      if (existing) {
+        setSelected(existing.id);
+      } else {
+        const script = scripts.find((x) => x.id === scriptId);
+        const r = await fetch('/api/schedules', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            scriptId, name: script?.name || 'Scheduled script',
+            enabled: false, time: '09:00', days: [1, 2, 3, 4, 5], graceMinutes: 20,
+          }),
+        }).then((x) => x.json());
+        const fresh = await load();
+        setSelected(r.schedule?.id || fresh?.[0]?.id || null);
+      }
+      router.replace('/automation');
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, schedules !== null]);
   useEffect(() => {
     if (activeRun) return;
     const t = setInterval(load, 15000);
@@ -125,14 +167,32 @@ export default function AutomationPage() {
   };
 
   const runNow = async () => {
-    if (!draft?.workflowId) return;
     setLog([]);
-    const r = await fetch(`/api/workflows/${draft.workflowId}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ action: 'run' }),
-    }).then((x) => x.json());
+    let r;
+    if (draft?.scriptId) {
+      r = await fetch(`/api/scripts/${draft.scriptId}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'run' }),
+      }).then((x) => x.json());
+    } else if (draft?.workflowId) {
+      r = await fetch(`/api/workflows/${draft.workflowId}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'run' }),
+      }).then((x) => x.json());
+    } else {
+      return;
+    }
     if (r.runId) setActiveRun(r.runId);
     else if (r.error) setLog([{ type: 'error', message: r.error }]);
+  };
+
+  /** Switching the target type clears whichever id belonged to the other one. */
+  const setTargetKind = (kind) => {
+    if (kind === 'script') {
+      setDraft({ ...draft, workflowId: '', scriptId: draft.scriptId || scripts[0]?.id || '' });
+    } else {
+      setDraft({ ...draft, scriptId: null, workflowId: draft.workflowId || workflows[0]?.id || '' });
+    }
   };
 
   if (!schedules) {
@@ -166,7 +226,7 @@ export default function AutomationPage() {
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {schedules.length === 0 && (
             <p className="p-3 text-[11.5px] text-muted-foreground">
-              Nothing scheduled. Create one, then point it at a workflow.
+              Nothing scheduled. Create one, then point it at a workflow or a script.
             </p>
           )}
           {schedules.map((s) => (
@@ -177,8 +237,9 @@ export default function AutomationPage() {
                 ? <CheckCircle size={14} weight="fill" className="flex-none text-ok" />
                 : <Clock size={14} weight="duotone" className="flex-none text-muted-foreground" />}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-medium">
-                  {s.name || s.workflow?.name || 'Schedule'}
+                <span className="flex items-center gap-1 truncate text-[12px] font-medium">
+                  {s.scriptId && <Code size={11} weight="duotone" className="flex-none text-muted-foreground" />}
+                  {s.name || s.workflow?.name || s.script?.name || 'Schedule'}
                 </span>
                 <span className="block truncate font-mono text-[10px] text-muted-foreground">
                   {s.time} · {(s.days || []).map((d) => DAYS[d]).join(' ') || 'no days'}
@@ -230,12 +291,35 @@ export default function AutomationPage() {
                            onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
                   </div>
                   <div>
-                    <Label className="mb-1.5 block text-[12px] font-medium">Workflow</Label>
-                    <select value={draft.workflowId}
-                            onChange={(e) => setDraft({ ...draft, workflowId: e.target.value })}
-                            className="h-9 w-full rounded-xl border border-input bg-transparent px-3 text-[13px]">
-                      {workflows.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
+                    <Label className="mb-1.5 block text-[12px] font-medium">Runs</Label>
+                    <div className="flex gap-1.5">
+                      <div className="flex flex-none rounded-xl border border-input p-0.5">
+                        <button type="button" onClick={() => setTargetKind('workflow')}
+                                className={cn('rounded-[10px] px-2.5 text-[12px] font-medium transition-colors',
+                                  !draft.scriptId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>
+                          Workflow
+                        </button>
+                        <button type="button" onClick={() => setTargetKind('script')}
+                                className={cn('rounded-[10px] px-2.5 text-[12px] font-medium transition-colors',
+                                  draft.scriptId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>
+                          Script
+                        </button>
+                      </div>
+                      {draft.scriptId ? (
+                        <select value={draft.scriptId}
+                                onChange={(e) => setDraft({ ...draft, scriptId: e.target.value })}
+                                className="h-9 min-w-0 flex-1 rounded-xl border border-input bg-transparent px-3 text-[13px]">
+                          {scripts.length === 0 && <option value="">No scripts yet</option>}
+                          {scripts.map((sc) => <option key={sc.id} value={sc.id}>{sc.name}</option>)}
+                        </select>
+                      ) : (
+                        <select value={draft.workflowId}
+                                onChange={(e) => setDraft({ ...draft, workflowId: e.target.value })}
+                                className="h-9 min-w-0 flex-1 rounded-xl border border-input bg-transparent px-3 text-[13px]">
+                          {workflows.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                        </select>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label className="mb-1.5 block text-[12px] font-medium">Time</Label>
@@ -325,10 +409,15 @@ export default function AutomationPage() {
                         l.type === 'error' ? 'text-bad'
                         : l.type === 'step' ? 'mt-1.5 font-semibold text-foreground'
                         : l.type === 'file' ? 'pl-3 text-muted-foreground'
+                        : l.type === 'call' ? 'text-muted-foreground'
+                        : l.type === 'result' ? 'text-ok'
                         : 'pl-3 text-muted-foreground')}>
                         {l.type === 'summary'
                           ? JSON.stringify(l.result)
-                          : l.type === 'file' ? `· ${l.name}` : (l.message || '')}
+                          : l.type === 'file' ? `· ${l.name}`
+                          : l.type === 'call' ? `→ ${l.path}(${(l.args || []).join(', ')})`
+                          : l.type === 'result' ? `✓ ${JSON.stringify(l.value)}`
+                          : (l.message || '')}
                       </div>
                     ))}
                     {log.length === 0 && <span className="text-muted-foreground">Waiting…</span>}

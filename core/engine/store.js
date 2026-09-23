@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { eq, desc } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { scripts } from '../db/schema.js';
+import { scripts, schedules } from '../db/schema.js';
 import * as runs from '../../runs.js';
 import { runScript } from './sandbox.js';
 
@@ -53,21 +53,30 @@ export function saveScript(patch) {
 }
 
 export function deleteScript(id) {
+  // Same cascade core/workflow/store.js's deleteWorkflow() applies —
+  // a schedule pointing at a deleted script is a schedule that silently
+  // fires nothing, forever, which is worse than one that's just gone.
+  db.delete(schedules).where(eq(schedules.scriptId, id)).run();
   return db.delete(scripts).where(eq(scripts.id, id)).run().changes > 0;
 }
 
 /**
  * Run a script as a tracked run. Fire-and-forget, like startChatRun — the
  * caller follows the returned run id through runs.subscribe().
+ *
+ * @param scheduleId  set only when the scheduler is the caller — carried
+ *   into the run's meta so core/workflow/scheduler.js's double-fire guard
+ *   (a slow run still active when the next tick lands) can recognise this
+ *   run as already covering the slot, the same way it does for a workflow.
  */
-export function runStoredScript(scriptId, { trigger = 'manual' } = {}) {
+export function runStoredScript(scriptId, { trigger = 'manual', scheduleId = null } = {}) {
   const script = getScript(scriptId);
   if (!script) throw new Error('no such script');
 
   const run = runs.createRun({
     kind: 'script',
     label: script.name,
-    meta: { scriptId, trigger },
+    meta: { scriptId, trigger, scheduleId },
   });
 
   (async () => {

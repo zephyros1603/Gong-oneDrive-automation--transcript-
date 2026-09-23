@@ -75,8 +75,17 @@ const CANDIDATES = {
     { consultantName: '' },
     {},
   ],
-  note_counts: [{ projectIds: '' }, {}],
 };
+
+/**
+ * Actions confirmed as POST-only (`core/connectors/cxportal.js`'s
+ * `postAction()` path). `action()`/`request()` are GET-only, so probing one
+ * of these here would just be a 400/404 that can never resolve — worth
+ * skipping outright rather than retrying with candidate params that were
+ * never going to work. Closing this gap means capturing a real request some
+ * other way, not calling it — this probe stays read-only throughout.
+ */
+const POST_ONLY = new Set(['note_counts']);
 
 function isoDaysFromNow(n) {
   return new Date(Date.now() + n * 86400e3).toISOString().slice(0, 10);
@@ -85,6 +94,11 @@ function isoDaysFromNow(n) {
 async function probeActions(cx) {
   log('\n=== actions ===\n');
   for (const name of ACTIONS) {
+    if (POST_ONLY.has(name)) {
+      out.actions[name] = { ok: false, error: 'POST-only — not probed here', postOnly: true };
+      log(`  ${pad(name, 32)} SKIPPED  confirmed POST-only, see core/connectors/cxportal.js`);
+      continue;
+    }
     try {
       const res = await cx.action(name);
       out.actions[name] = { ok: true, shape: deepShape(res) };

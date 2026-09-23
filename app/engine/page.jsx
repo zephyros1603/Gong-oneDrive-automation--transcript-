@@ -17,9 +17,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   Plus, Play, FloppyDisk, Trash, Code, CheckCircle, XCircle, Clock,
-  CaretRight, BookOpen,
+  CaretRight, CaretLeft, BookOpen, CalendarBlank,
 } from '@phosphor-icons/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,11 +28,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Markdown } from '@/components/common.jsx';
 import { readEvents } from '@/lib/useRunStream.js';
 import { ago } from '@/lib/format.js';
 import { cn } from '@/lib/utils';
 
-const STARTER = `// warp.projects, warp.gong, warp.cxp, warp.correlate, warp.context,
+const STARTER = `// warp.projects, warp.gong, warp.cxp, warp.correlate, warp.context, warp.excel,
 // warp.claude, warp.approvals, warp.notify, warp.window are all you get —
 // no require(), no fs, no process. console.log() shows up in the run log.
 
@@ -42,11 +44,13 @@ return projects.map((p) => p.name);
 `;
 
 const API_REFERENCE = [
-  ['warp.projects.list() / .get(id)', 'Every Warp customer, or one by id'],
-  ['warp.gong.transcripts() / .read(path)', 'Files in the library; read one'],
-  ['warp.cxp.projects(opts) / .myProjects(opts) / .projectDetail(id) / .action(name, params)', 'The CX Portal, raw'],
+  ['warp.projects.list() / .get(id) / .syncFromCxp()', 'Every project; the creation run (CX Portal → Warp project)'],
+  ['warp.gong.transcripts() / .read(path) / .pull(opts)', 'Files in the library, read one, or pull new ones'],
+  ['warp.cxp.projects(opts) / .myProjects(opts) / .projectDetail(id, opts) / .customers(opts) / .action(name, params)', 'The CX Portal, raw'],
+  ['await warp.cxp.proposeNote({ customerName, text, shareToSlack })', 'Propose a note for approval — never posts. Approving in Approvals is the one real write.'],
   ['warp.correlate.customers(gongNames, cxNames)', 'Match two name lists — exact/strong/weak'],
-  ['warp.context.digest(projectId) / .status()', 'Build or read a customer digest'],
+  ['warp.context.read(id) / .write(id, text) / .update(id, opts) / .status()', "A project's one context.md — the update run is the curated rewrite"],
+  ['new warp.excel.Workbook() / await warp.excel.save(wb, name)', 'Build a real .xlsx, save it into the documents library'],
   ['await warp.claude.run({ instruction, files, skill })', 'One Claude call, returns its reply text'],
   ['warp.approvals.propose({ title, path|body }) / .pending()', 'Queue something for review — never delivers directly'],
   ['warp.notify.say(title, body)', 'Put something in the bell, right now'],
@@ -62,7 +66,24 @@ export default function EnginePage() {
   const [log, setLog] = useState([]);
   const [running, setRunning] = useState(false);
   const [showRef, setShowRef] = useState(false);
+  const [view, setView] = useState('editor');
+  const [docText, setDocText] = useState(null);
+  const [docBusy, setDocBusy] = useState(false);
   const ctrlRef = useRef(null);
+
+  const openDocs = async () => {
+    setView('docs');
+    if (docText !== null || docBusy) return;
+    setDocBusy(true);
+    try {
+      const r = await fetch('/api/docs?name=engine-api').then((x) => x.json());
+      setDocText(r.text || `_Could not load the reference: ${r.error || 'unknown error'}_`);
+    } catch (err) {
+      setDocText(`_Could not load the reference: ${err.message}_`);
+    } finally {
+      setDocBusy(false);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -196,12 +217,35 @@ export default function EnginePage() {
                 <span className="block text-[10px] text-muted-foreground">{hint}</span>
               </div>
             ))}
+            <button onClick={openDocs}
+                    className="flex w-full items-center gap-1 pt-1 text-[10.5px] font-medium text-primary hover:underline">
+              Full reference, with examples
+              <CaretRight size={9} weight="bold" />
+            </button>
           </div>
         )}
       </aside>
 
       <section className="min-w-0 flex-1 overflow-y-auto">
-        {!draft ? (
+        {view === 'docs' ? (
+          <div className="mx-auto max-w-[860px] space-y-3.5 p-5">
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" onClick={() => setView('editor')} className="rounded-lg">
+                <CaretLeft size={13} weight="bold" /> Back to editor
+              </Button>
+              <h1 className="text-[13px] font-semibold">warp.* API reference</h1>
+            </div>
+            <Card className="rounded-2xl">
+              <CardContent className="p-5">
+                {docText === null ? (
+                  <Skeleton className="h-[420px] rounded-xl" />
+                ) : (
+                  <Markdown source={docText} />
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        ) : !draft ? (
           <div className="grid h-full place-items-center p-8 text-center">
             <div>
               <Code size={28} weight="duotone" className="mx-auto mb-3 text-muted-foreground" />
@@ -224,6 +268,13 @@ export default function EnginePage() {
                 <Button size="sm" variant="outline" onClick={save} disabled={busy || !dirty} className="rounded-lg">
                   <FloppyDisk size={13} weight="bold" /> Save
                 </Button>
+                {selected && !dirty && (
+                  <Button size="sm" variant="outline" asChild className="rounded-lg" title="Set up a schedule for this script in Automation">
+                    <Link href={`/automation?script=${selected.id}`}>
+                      <CalendarBlank size={13} weight="duotone" /> Schedule
+                    </Link>
+                  </Button>
+                )}
                 {selected && (
                   <Button size="sm" variant="outline" onClick={() => remove(selected)}
                           className="rounded-lg text-bad hover:text-bad">

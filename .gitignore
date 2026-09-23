@@ -2,11 +2,15 @@ gong.env
 gong.env.bak
 settings.json
 projects.json
-raw/
-transcripts/
-sorted/
-documents/
-logs/
+# Anchored to the repo root — a bare `transcripts/` also matched
+# app/api/gong/transcripts/, silently excluding that route from every commit
+# until this was caught. Same class of bug .next-*/ below was already fixed
+# for once.
+/raw/
+/transcripts/
+/sorted/
+/documents/
+/logs/
 .server.pid
 node_modules/
 ui/_probe.html
