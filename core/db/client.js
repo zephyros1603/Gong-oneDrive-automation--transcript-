@@ -214,7 +214,10 @@ function open() {
   // Without it the reader blocks and the UI stutters during a pipeline run.
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
+  // 10s, not 5s: cheap insurance for any other concurrent-writer moment
+  // (a scheduled tick landing mid-request on a slow disk) — not a fix for
+  // the fresh-install race itself, see scripts/init-db.mjs for that.
+  sqlite.pragma('busy_timeout = 10000');
 
   sqlite.exec(DDL);
   migrateColumns(sqlite);

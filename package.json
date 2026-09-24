@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev -H 127.0.0.1 -p 7878",
-    "serve": "next build && next start -H 127.0.0.1 -p 7878",
-    "build": "next build",
-    "start": "next start -H 127.0.0.1 -p 7878",
+    "dev": "node scripts/init-db.mjs && next dev -H 127.0.0.1 -p 7878",
+    "serve": "node scripts/init-db.mjs && next build && next start -H 127.0.0.1 -p 7878",
+    "build": "node scripts/init-db.mjs && next build",
+    "start": "node scripts/init-db.mjs && next start -H 127.0.0.1 -p 7878",
     "migrate": "node core/db/migrate.js",
     "pull": "node gong.js me --days 7",
     "cx:probe": "node scripts/cxportal-probe.mjs"
