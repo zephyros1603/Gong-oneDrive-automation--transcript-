@@ -70,6 +70,29 @@ export function attachContext(projectId, path, source = null, kind = 'context') 
   return filesByKind(projectId, kind);
 }
 
+/**
+ * Point a project's one context row at `path`, dropping any other
+ * `kind='context'` row it has first.
+ *
+ * `attachContext()` alone upserts on `(projectId, path)` — safe when a
+ * project's context always lives at the same path, but a customer with
+ * several CX Portal projects consolidating onto one shared file *changes*
+ * that path for every project but the first, and the old per-project path
+ * would otherwise stick around as an orphaned second row (harmless to
+ * `contextFor()`, which takes the newest, but real clutter on disk and in
+ * the table). This is the one place that path change happens, so it's the
+ * one place responsible for cleaning up after itself.
+ */
+export function setContext(projectId, path, source = null) {
+  db.delete(projectTranscripts)
+    .where(and(
+      eq(projectTranscripts.projectId, projectId),
+      eq(projectTranscripts.kind, 'context'),
+      notInArray(projectTranscripts.path, [path]),
+    )).run();
+  return attachContext(projectId, path, source, 'context');
+}
+
 function messagesFor(id) {
   return db.select().from(messagesTable)
     .where(eq(messagesTable.projectId, id))

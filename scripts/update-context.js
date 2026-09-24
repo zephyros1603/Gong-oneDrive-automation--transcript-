@@ -2,10 +2,13 @@
 //
 // For every Warp project linked to a CX Portal project, fetches fresh CX
 // Portal data plus whatever Gong transcripts are already pulled+organized
-// for that customer, and has Claude rewrite the project's one context.md.
-// Content-hash-gated: a project with nothing new since the last run is
-// skipped without a Claude call, so running this daily costs nothing extra
-// on quiet days.
+// for that customer since this past Monday (see WINDOW below), and has
+// Claude rewrite the customer's one shared context.md — every project under
+// the same customer is covered by a single call, not one each. Gated before
+// any of that reaches Claude: unchanged since the last update, or already
+// updated today, both skip without a Claude call — see
+// core/workflow/projectContext.js's updateProjectContext() for exactly what
+// "unchanged" checks.
 //
 // Read-only against CX Portal (projectDetail — all GET). Never posts
 // anything, never touches the CX Portal write path — that's a completely
@@ -30,6 +33,16 @@ const ONLY_IDS = [];
 // at once.
 const PACE_MS = 2000;
 
+// Gong transcripts from this past Monday through now — a calendar week, not
+// a rolling 7 days, so the window lines up with a working week rather than
+// creeping a day later every time this runs. `warp.window.resolve()` is the
+// same resolver every workflow uses; { preset: 'week', anchor: 'this' } is
+// its "Monday to now" preset. Run this Monday morning and the window is
+// genuinely just today — that's correct, not a bug: `anchor: 'previous'`
+// would be the one to use instead if last week's full window is what's
+// wanted on a Monday specifically.
+const WINDOW = { preset: 'week', anchor: 'this' };
+
 // ============================================================
 // RUN
 // ============================================================
@@ -45,7 +58,7 @@ const failed = [];
 
 for (const p of targets) {
   try {
-    const r = await warp.context.update(p.id);
+    const r = await warp.context.update(p.id, { window: WINDOW });
     if (r.cached) {
       cached.push(p.name);
       console.log(`  = ${p.name} — nothing new, skipped`);
