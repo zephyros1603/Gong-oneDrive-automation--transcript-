@@ -26,6 +26,7 @@ import * as library from '../../library.js';
 import * as runsStore from '../../runs.js';
 import { loadConfig, slug } from '../../gong.js';
 import ExcelJS from 'exceljs';
+import * as Docx from 'docx';
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 
@@ -271,6 +272,56 @@ export function buildApi({ onEvent = () => {} } = {}) {
         }
 
         const buffer = await workbook.xlsx.writeBuffer();
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, buffer);
+        library.refresh();
+        return { path, name: safeName, folder: safeFolder };
+      },
+    },
+
+    // ---- build a real .docx from scratch ---------------------------------
+    docx: {
+      /**
+       * The `docx` npm package's own classes and enums, handed over
+       * directly — Document, Paragraph, TextRun, Table, TableRow, TableCell,
+       * and every enum a skill like skills/weekly-status-report's
+       * build_wsr.js uses (WidthType, ShadingType, BorderStyle, ...).
+       * Unwrapped for the same reason `excel.Workbook` is: reimplementing
+       * docx's whole document-building API as a wrapped, traced surface
+       * isn't practical.
+       *
+       * Same caveat as warp.excel: this is **not fully sandboxed** —
+       * `Packer.toBuffer()` is docx's own real serialiser with no disk
+       * access, but nothing stops a script from writing that buffer
+       * somewhere of its own choosing through some other means. Use
+       * `docx.save()` below instead; it never lets a path reach the script.
+       */
+      ...Docx,
+
+      /**
+       * The sanctioned way to get a Document onto disk — mirrors
+       * `excel.save()` exactly: serialises in memory (`Packer.toBuffer()`,
+       * no disk access) and writes the bytes with this module's own
+       * `writeFileSync` into the documents library — the same root
+       * `warp.approvals.propose()` expects a `path` to already live under.
+       * A script never chooses the destination path itself, only a name.
+       */
+      async save(document, name, { folder = '' } = {}) {
+        trace('docx.save')(name);
+        const cfg = loadConfig();
+        const safeName = `${slug(name || 'document')}.docx`;
+        const safeFolder = folder ? slug(folder) : '';
+        const dir = safeFolder ? join(cfg.docsDir, safeFolder) : cfg.docsDir;
+        const path = join(dir, safeName);
+
+        // slug() already strips separators, but assert containment anyway —
+        // the same belt-and-suspenders check excel.save() and library.js's
+        // saveDocument() use.
+        if (!resolve(path).startsWith(resolve(cfg.docsDir) + sep) && resolve(path) !== resolve(cfg.docsDir)) {
+          throw new Error('refusing to write outside the documents folder');
+        }
+
+        const buffer = await Docx.Packer.toBuffer(document);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, buffer);
         library.refresh();

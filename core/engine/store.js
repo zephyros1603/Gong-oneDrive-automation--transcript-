@@ -15,6 +15,18 @@ import { scripts, schedules } from '../db/schema.js';
 import * as runs from '../../runs.js';
 import { runScript } from './sandbox.js';
 
+// sandbox.js's own 60s default was sized for the short, single-call utility
+// scripts this engine started with (a pull, a correlate check, a quick
+// return). A script that makes one warp.claude.run() call per customer in a
+// loop (e.g. scripts/wsr-build-docx.js) genuinely needs minutes, not
+// seconds — and when the old 60s timeout won its Promise.race against a
+// script mid-await, the script kept running anyway (vm's synchronous
+// timeout can't interrupt an await), just with the run already marked
+// "abandoned" and no further run-log visibility into what it did. Raised
+// here rather than left unbounded, so a script that's truly hung still
+// gets caught eventually.
+const SCRIPT_TIMEOUT_MS = 20 * 60 * 1000;
+
 const hydrate = (r) => r && ({
   id: r.id, name: r.name, description: r.description, code: r.code,
   enabled: Boolean(r.enabled),
@@ -82,7 +94,7 @@ export function runStoredScript(scriptId, { trigger = 'manual', scheduleId = nul
   (async () => {
     const result = await runScript(script.code, {
       onEvent: (e) => runs.push(run.id, e),
-      timeoutMs: 60_000,
+      timeoutMs: SCRIPT_TIMEOUT_MS,
     });
 
     db.update(scripts).set({

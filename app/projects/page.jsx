@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CaretRight, DotsThreeVertical, Trash } from '@phosphor-icons/react';
+import { CaretRight, DotsThreeVertical, Trash, Copy } from '@phosphor-icons/react';
 import { normalise } from '@/core/correlate.js';
 import Composer, { RunStatus } from '@/components/Composer.jsx';
 import {
@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dropdown-menu.jsx';
 import { useRunStream } from '@/lib/useRunStream.js';
 import { runMeta, stripName, plural, ago } from '@/lib/format.js';
+import { writeClipboard } from '@/lib/md.js';
 
 const LAST_KEY = 'gong.lastProject';
 
@@ -221,6 +222,20 @@ export default function ProjectsPage() {
     if (!project) return;
     await fetch(`/api/projects/${project.id}/reset-session`, { method: 'POST' });
     await openProject(project.id);
+  };
+
+  const [copiedId, setCopiedId] = useState(false);
+
+  /**
+   * The id an Engine script needs (`PROJECT_ID` / `ONLY_IDS` in
+   * scripts/update-context.js and scripts/propose-note.js) — there's
+   * nowhere else in the UI it's visible, so this is the one place to get it
+   * without writing a throwaway `warp.projects.list()` script first.
+   */
+  const copyProjectId = async () => {
+    if (!project) return;
+    const ok = await writeClipboard(project.id);
+    if (ok) { setCopiedId(true); setTimeout(() => setCopiedId(false), 1500); }
   };
 
   /**
@@ -425,6 +440,10 @@ export default function ProjectsPage() {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={(e) => { e.preventDefault(); copyProjectId(); }}>
+                    <Copy size={13} weight="bold" />
+                    {copiedId ? 'Copied!' : 'Copy project ID'}
+                  </DropdownMenuItem>
                   <DropdownMenuItem variant="destructive" onClick={deleteProjectNow}>
                     <Trash size={13} weight="bold" />
                     Delete project
