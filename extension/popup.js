@@ -1,15 +1,25 @@
 /**
- * Reads the Gong session cookies and POSTs them to the local puller.
+ * Reads the Gong session cookies and the CX Portal token, and POSTs each to
+ * the local puller.
  *
- * Why an extension: `g-session` is HttpOnly, so page JavaScript and
- * bookmarklets cannot see it — `chrome.cookies` is the only API that can.
+ * Two different browser APIs for two different reasons:
+ *   - Gong: `g-session` is HttpOnly, so page JavaScript and bookmarklets
+ *     cannot see it — `chrome.cookies` is the only API that can.
+ *   - CX Portal: the tokens live in that page's own `localStorage`
+ *     (`accessToken` / `refreshToken` — see core/connectors/registry.js's
+ *     credentialSchema hints, which is where these exact key names come
+ *     from), not a cookie at all — `chrome.scripting.executeScript` reads
+ *     them out of the CX Portal tab itself, the same way pasting
+ *     `copy(localStorage.getItem('accessToken'))` into that tab's own
+ *     DevTools console already does today, just without opening DevTools.
  */
 
 const $ = (id) => document.getElementById(id);
 const DEFAULT_PORT = 7878;
+const CXPORTAL_URL_PATTERN = '*://cx-portal.aquera.io/*';
 
-const setStatus = (kind, title, body) => {
-  const el = $('status');
+const setStatus = (elId, kind, title, body) => {
+  const el = $(elId);
   el.className = `status show ${kind}`;
   el.innerHTML = `<div class="title">${title}</div>${body || ''}`;
 };
@@ -78,12 +88,12 @@ async function send() {
     const jar = await collect();
 
     if (!jar.count) {
-      setStatus('bad', '✕ Not signed in',
+      setStatus('status', 'bad', '✕ Not signed in',
         '<div class="line">No gong.io cookies found. Open Gong in a tab and sign in, then try again.</div>');
       return;
     }
     if (!jar.hasSession) {
-      setStatus('bad', '✕ Not signed in',
+      setStatus('status', 'bad', '✕ Not signed in',
         '<div class="line">Found gong.io cookies but no session cookie. ' +
         'Open Gong, sign in, then try again.</div>');
       return;
@@ -102,7 +112,7 @@ async function send() {
         body: JSON.stringify({ cookie: jar.cookie, host: jar.host, source: 'chrome extension' }),
       });
     } catch {
-      setStatus('bad', '✕ Puller not running',
+      setStatus('status', 'bad', '✕ Puller not running',
         `<div class="line">Nothing is listening on <b>${esc(base())}</b>. ` +
         'Double-click <code>Start Gong UI.command</code> first.</div>');
       return;
@@ -115,7 +125,7 @@ async function send() {
       const expires = ck.cellExpires
         ? new Date(ck.cellExpires).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
         : '—';
-      setStatus('ok', '✓ Session sent and saved', `
+      setStatus('status', 'ok', '✓ Session sent and saved', `
         <div class="rows">
           <div class="row"><span>account</span><b>${esc(ck.email || d.userId || '')}</b></div>
           <div class="row"><span>tenant</span><b>${esc(d.host || '')}</b></div>
@@ -129,26 +139,126 @@ async function send() {
       // The server verified it and refused, so say which step failed rather
       // than claiming success and letting the puller fail later.
       const failed = (d.checks || []).find((c) => !c.ok);
-      setStatus('bad', '✕ Session rejected',
+      setStatus('status', 'bad', '✕ Session rejected',
         `<div class="line">${esc(d.fatal || failed?.detail || 'the server could not verify this session')}</div>`);
     }
   } catch (err) {
-    setStatus('bad', '✕ Something went wrong', `<div class="line">${esc(err.message)}</div>`);
+    setStatus('status', 'bad', '✕ Something went wrong', `<div class="line">${esc(err.message)}</div>`);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Send session to puller';
+    btn.textContent = 'Send Gong session';
+  }
+}
+
+/**
+ * Pull `accessToken` / `refreshToken` out of an open CX Portal tab's own
+ * localStorage — the same two keys core/connectors/registry.js's
+ * credentialSchema hints document as what to paste by hand
+ * (`copy(localStorage.getItem('accessToken'))`), just read via
+ * chrome.scripting instead of a DevTools console.
+ */
+async function collectCxp() {
+  const [tab] = await chrome.tabs.query({ url: CXPORTAL_URL_PATTERN });
+  if (!tab) return { found: false };
+
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: 'MAIN',
+    func: () => ({
+      accessToken: localStorage.getItem('accessToken') || '',
+      refreshToken: localStorage.getItem('refreshToken') || '',
+    }),
+  });
+
+  return { found: true, tabUrl: tab.url, ...result };
+}
+
+async function sendCxp() {
+  const btn = $('sendCxp');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try {
+    let jar;
+    try {
+      jar = await collectCxp();
+    } catch (err) {
+      setStatus('statusCxp', 'bad', '✕ Could not read the CX Portal tab',
+        `<div class="line">${esc(err.message)}</div>`);
+      return;
+    }
+
+    if (!jar.found) {
+      setStatus('statusCxp', 'bad', '✕ No CX Portal tab open',
+        `<div class="line">Open <b>${esc(CXPORTAL_URL_PATTERN.replace('*://', '').replace('/*', ''))}</b> and sign in, then try again.</div>`);
+      return;
+    }
+    if (!jar.accessToken) {
+      setStatus('statusCxp', 'bad', '✕ Not signed in',
+        '<div class="line">Found the CX Portal tab but no accessToken in localStorage. Sign in there, then try again.</div>');
+      return;
+    }
+
+    // Same principle as the Gong side: sent as-is, the server verifies for
+    // real (core/connectors/cxportal-token.js's receiveCxpToken(), the same
+    // check the Credentials tab's own Test button runs) rather than this
+    // popup guessing at what a valid token looks like.
+
+    let res;
+    try {
+      res = await fetch(`${base()}/api/cxportal/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          token: jar.accessToken, refreshToken: jar.refreshToken, source: 'chrome extension',
+        }),
+      });
+    } catch {
+      setStatus('statusCxp', 'bad', '✕ Puller not running',
+        `<div class="line">Nothing is listening on <b>${esc(base())}</b>. ` +
+        'Double-click <code>Start Gong UI.command</code> first.</div>');
+      return;
+    }
+
+    const d = await res.json();
+
+    if (d.saved) {
+      const tokenCheck = (d.checks || []).find((c) => c.step === 'token');
+      setStatus('statusCxp', 'ok', '✓ Token sent and saved', `
+        <div class="rows">
+          <div class="row"><span>token</span><b>${esc(tokenCheck?.detail || 'valid')}</b></div>
+          <div class="row"><span>refresh token</span><b>${jar.refreshToken ? 'included' : 'not found'}</b></div>
+        </div>`);
+      chrome.storage.local.set({ lastSentCxp: Date.now(), port: $('port').value });
+      showHint();
+    } else {
+      const failed = (d.checks || []).find((c) => !c.ok);
+      setStatus('statusCxp', 'bad', '✕ Token rejected',
+        `<div class="line">${esc(d.fatal || failed?.detail || 'the server could not verify this token')}</div>`);
+    }
+  } catch (err) {
+    setStatus('statusCxp', 'bad', '✕ Something went wrong', `<div class="line">${esc(err.message)}</div>`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Send CX Portal token';
   }
 }
 
 function showHint() {
-  chrome.storage.local.get(['lastSent'], ({ lastSent }) => {
-    $('hint').textContent = lastSent
-      ? `Last sent ${new Date(lastSent).toLocaleString()}.`
-      : 'Sign in to Gong in any tab, then click the button above.';
+  chrome.storage.local.get(['lastSent', 'lastSentCxp'], ({ lastSent, lastSentCxp }) => {
+    const parts = [];
+    parts.push(lastSent
+      ? `Gong last sent ${new Date(lastSent).toLocaleString()}.`
+      : 'Sign in to Gong in any tab, then click Send Gong session.');
+    parts.push(lastSentCxp
+      ? `CX Portal last sent ${new Date(lastSentCxp).toLocaleString()}.`
+      : 'Sign in to CX Portal in a tab, then click Send CX Portal token.');
+    $('hint').innerHTML = parts.join('<br>');
   });
 }
 
 $('send').onclick = send;
+$('sendCxp').onclick = sendCxp;
 $('open').onclick = (e) => {
   e.preventDefault();
   chrome.tabs.create({ url: base() });

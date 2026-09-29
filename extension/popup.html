@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Gong Cookie Bridge</title>
+<title>Gong & CX Portal Bridge</title>
 <style>
   :root {
     --bg: #12151d; --surface: #171b25; --line: #252a38;
@@ -57,14 +57,28 @@
 
   .hint { margin-top: 10px; font-size: 11px; color: var(--faint); line-height: 1.55; }
   code { font-family: var(--mono); font-size: 10.5px; }
+
+  .section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .section h2 { margin: 0 0 2px; font-size: 12.5px; font-weight: 600; }
+  button.secondary {
+    background: var(--surface); border: 1px solid var(--line);
+    background-image: none;
+  }
 </style>
 
-<h1>Gong Cookie Bridge</h1>
+<h1>Gong & CX Portal Bridge</h1>
 <p class="sub">Sends your signed-in session to the local puller.</p>
 
-<button id="send">Send session to puller</button>
+<button id="send">Send Gong session</button>
 
 <div class="status" id="status"></div>
+
+<div class="section">
+  <h2>CX Portal</h2>
+  <p class="sub">Reads the access &amp; refresh token from an open CX Portal tab's own storage.</p>
+  <button id="sendCxp" class="secondary">Send CX Portal token</button>
+  <div class="status" id="statusCxp"></div>
+</div>
 
 <div class="cfg">
   <label for="port">Port</label>
