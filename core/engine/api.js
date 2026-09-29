@@ -52,12 +52,20 @@ export function buildApi({ onEvent = () => {} } = {}) {
   return {
     // ---- Gong / the transcript library --------------------------------
     gong: {
-      /** Every transcript file Warp currently holds, newest first. */
+      /**
+       * Every transcript file Warp currently holds, newest first. `root`
+       * tells a raw day-folder pull apart from the organized customer tree
+       * (`'by day'` vs `'sorted'`) — the same distinction
+       * `core/workflow/projectContext.js`'s `gongInputsFor()` uses
+       * internally, exposed here for a script that needs to tell "pulled"
+       * from "organized and matchable to a customer" itself. Already fully
+       * public: `/api/files` and `/api/tree` return this same field today.
+       */
       transcripts() {
         trace('gong.transcripts')();
         return library.listFiles().filter((f) => f.kind === 'input')
           .sort((a, b) => b.mtime - a.mtime)
-          .map((f) => ({ path: f.path, name: f.name, mtime: f.mtime, group: f.group }));
+          .map((f) => ({ path: f.path, name: f.name, mtime: f.mtime, group: f.group, root: f.root }));
       },
       /** Read one transcript's text. Confined to the library, like everything else. */
       read(path) {
