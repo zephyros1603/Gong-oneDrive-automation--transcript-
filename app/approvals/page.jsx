@@ -6,12 +6,20 @@
  * The point is cheap review, not thorough review: the document is here, the
  * email is here, and a decision is one click. If approving takes as long as
  * writing, the queue becomes the bottleneck and people route around it.
+ *
+ * Files only — documents and covering emails. CX Portal notes are a
+ * different review queue with a different shape (one write-adjacent action,
+ * one payload field, no destination folder, no docx/xlsx preview) and live
+ * on their own page, `/approvals/notes`, reachable from the switcher below.
+ * They used to share this page as an always-visible sidebar widget; that
+ * made the note text unreadable (three lines, no way to open it) and
+ * conflated two different queues in one cramped list.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import {
   CheckCircle, XCircle, FileDoc, EnvelopeSimple, Check, X,
-  FolderOpen, House, ArrowUp, FloppyDisk, ChatCircleText, SlackLogo, CaretDown, Plus,
+  FolderOpen, House, ArrowUp, FloppyDisk,
 } from '@phosphor-icons/react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -23,10 +31,9 @@ import { UniverViewer } from '@/components/UniverViewer.jsx';
 import { useResizablePanel, useBreakpoint } from '@/lib/useResponsive.js';
 import { ago } from '@/lib/format.js';
 import { cn } from '@/lib/utils';
+import { SectionSwitcher, StatusTabs } from '@/components/ApprovalsNav.jsx';
 
 const extOf = (path) => (path || '').split('.').pop()?.toLowerCase() || '';
-
-const TABS = [['pending', 'Pending'], ['approved', 'Approved'], ['rejected', 'Rejected']];
 
 export default function ApprovalsPage() {
   const [status, setStatus] = useState('pending');
@@ -40,31 +47,6 @@ export default function ApprovalsPage() {
   const [destDir, setDestDir] = useState('');
   const [browsePath, setBrowsePath] = useState(null);
   const [browse, setBrowse] = useState(null);
-  // Pending CX Portal notes — proposed either by a script
-  // (warp.cxp.proposeNote()) or by hand, below. Fetched separately from the
-  // tab-scoped approvals list because this section is always visible
-  // regardless of which status tab is selected — "pending" is its own
-  // permanent state, not a tab.
-  const [cxpNotes, setCxpNotes] = useState([]);
-  const [cxpOpen, setCxpOpen] = useState(true);
-  const [cxpBusy, setCxpBusy] = useState(null);
-  const [projectNames, setProjectNames] = useState([]);
-
-  // A separate section from the review list above — composing a note is
-  // authoring, reviewing one is deciding, and the two stay visually apart
-  // even though composing still only ever proposes, never posts. Submitting
-  // this form calls the exact same propose-only route a script does
-  // (POST /api/cxportal/note); the only thing that can ever post is the
-  // Approve button in the review list.
-  const [showCompose, setShowCompose] = useState(false);
-  // '' selects the free-text fallback below; any other value is a linked
-  // project's id from `linkedProjects`, picked from the dropdown.
-  const [composeProjectId, setComposeProjectId] = useState('');
-  const [composeCustomer, setComposeCustomer] = useState('');
-  const [composeText, setComposeText] = useState('');
-  const [composeShareToSlack, setComposeShareToSlack] = useState(false);
-  const [composeBusy, setComposeBusy] = useState(false);
-  const [composeResult, setComposeResult] = useState(null);
 
   const { isCompact } = useBreakpoint();
   const panel = useResizablePanel({
@@ -74,7 +56,7 @@ export default function ApprovalsPage() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`/api/approvals?status=${status}`).then((x) => x.json());
+      const r = await fetch(`/api/approvals?status=${status}&kind=files`).then((x) => x.json());
       setD(r);
       setSel((cur) => r.approvals.find((a) => a.id === cur?.id) || r.approvals[0] || null);
       setPicked(new Set());
@@ -86,72 +68,6 @@ export default function ApprovalsPage() {
   useEffect(() => {
     fetch('/api/settings').then((r) => r.json()).then((s) => setDestDir(s.approvalDestDir || '')).catch(() => {});
   }, []);
-
-  const loadCxpNotes = useCallback(async () => {
-    try {
-      const r = await fetch('/api/approvals?status=pending').then((x) => x.json());
-      setCxpNotes((r.approvals || []).filter((a) => a.kind === 'cxp_note'));
-    } catch { setCxpNotes([]); }
-  }, []);
-
-  useEffect(() => { loadCxpNotes(); }, [loadCxpNotes]);
-
-  // Only projects already linked to a CX Portal project — picking one of
-  // these carries its cxpProjectId straight through, which skips the fuzzy
-  // customer-name search entirely. A project's own `customer` field can
-  // differ from CX Portal's spelling of the same name (a Gong-only project
-  // predating the CX Portal link, punctuation, a shortened name — the "One
-  // Community Health Sacramento" vs "One Community Health" kind of gap) —
-  // picking from this list is the only way to rule that class of error out.
-  useEffect(() => {
-    fetch('/api/projects').then((r) => r.json())
-      .then((d) => setProjectNames((d.projects || []).filter((p) => p.cxpProjectId)
-        .map((p) => ({ id: p.id, name: p.name, customer: p.customer, cxpProjectId: p.cxpProjectId }))
-        .sort((a, b) => a.customer.localeCompare(b.customer))))
-      .catch(() => {});
-  }, []);
-
-  const selectedComposeProject = projectNames.find((p) => p.id === composeProjectId) || null;
-
-  /**
-   * Composing calls the exact same route a script does — POST
-   * /api/cxportal/note, which only ever proposes (see
-   * app/api/cxportal/note/route.js). This function cannot post; only
-   * decideCxpNote()'s Approve path, three components down, can.
-   */
-  const submitCompose = async () => {
-    const usingKnownProject = Boolean(selectedComposeProject);
-    if ((!usingKnownProject && !composeCustomer.trim()) || !composeText.trim()) return;
-    setComposeBusy(true);
-    setComposeResult(null);
-    try {
-      const body = usingKnownProject
-        ? {
-            cxpProjectId: selectedComposeProject.cxpProjectId,
-            projectName: selectedComposeProject.name,
-            customerName: selectedComposeProject.customer,
-            text: composeText.trim(), shareToSlack: composeShareToSlack,
-          }
-        : { customerName: composeCustomer.trim(), text: composeText.trim(), shareToSlack: composeShareToSlack };
-
-      const r = await fetch('/api/cxportal/note', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      }).then((x) => x.json());
-      if (r.error) {
-        setComposeResult({ ok: false, message: r.error });
-      } else {
-        setComposeResult({ ok: true, message: `Proposed for ${r.approval?.project || composeCustomer} — waiting for approval below.` });
-        setComposeText('');
-        setComposeShareToSlack(false);
-        await loadCxpNotes();
-      }
-    } catch (err) {
-      setComposeResult({ ok: false, message: err.message });
-    } finally {
-      setComposeBusy(false);
-    }
-  };
 
   const loadBrowse = useCallback((path) => {
     fetch(`/api/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`)
@@ -215,6 +131,11 @@ export default function ApprovalsPage() {
       .catch((e) => setBody(`_Could not read this file: ${e.message}_`));
   }, [sel]);
 
+  /**
+   * The one write-adjacent action a document/email approval can trigger is
+   * `deliverToDestination()` — a copy, never CX Portal. The real CX-Portal
+   * write lives entirely on the Notes page now; this page never touches it.
+   */
   const act = async (ids, next) => {
     setBusy(true);
     try {
@@ -224,26 +145,6 @@ export default function ApprovalsPage() {
       });
       await load();
     } finally { setBusy(false); }
-  };
-
-  /**
-   * Approving here is the one real write this whole app makes — it's what
-   * finally calls `core/approvals/store.js`'s `decide()`, which posts to the
-   * customer's real CX Portal timeline (and their Slack, if the proposing
-   * script set `shareToSlack`). Rejecting never posts. Nothing on this page
-   * composes a note any more — that's the script's job now
-   * (`warp.cxp.proposeNote()`); this button only ever fires the same
-   * `/api/approvals` decide call every other approval already uses.
-   */
-  const decideCxpNote = async (id, next) => {
-    setCxpBusy(id);
-    try {
-      await fetch('/api/approvals', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, status: next }),
-      });
-      await loadCxpNotes();
-    } finally { setCxpBusy(null); }
   };
 
   if (!d) {
@@ -259,9 +160,7 @@ export default function ApprovalsPage() {
     );
   }
 
-  // cxp_note rows have their own always-visible section below and never
-  // appear in this tab-scoped document/email list.
-  const list = (d.approvals || []).filter((a) => a.kind !== 'cxp_note');
+  const list = d.approvals || [];
 
   return (
     <div className="flex h-full min-w-0 overflow-hidden">
@@ -270,144 +169,8 @@ export default function ApprovalsPage() {
         className={cn('flex flex-col border-r border-border bg-card',
           isCompact ? 'w-[46%] min-w-[210px] flex-none' : 'flex-none')}
       >
-        {/* Always visible — a schedule fires whether or not there's a
-            document pending, and this is the one write in the whole app, so
-            it never hides behind a tab or a document selection. */}
-        <div className="flex-none border-b border-border">
-          <div className="flex items-center">
-            <button onClick={() => setCxpOpen((v) => !v)}
-                    className="flex min-w-0 flex-1 items-center gap-1.5 px-3 py-2 text-left hover:bg-muted">
-              <ChatCircleText size={13} weight="duotone" className="flex-none text-muted-foreground" />
-              <span className="min-w-0 flex-1 text-[11.5px] font-medium">CX Portal notes</span>
-              {cxpNotes.length > 0 && (
-                <span className="rounded bg-primary/10 px-1 font-mono text-[10px] text-primary">{cxpNotes.length}</span>
-              )}
-              <CaretDown size={11} weight="bold"
-                         className={cn('flex-none text-muted-foreground transition-transform', !cxpOpen && '-rotate-90')} />
-            </button>
-            <button onClick={() => { setShowCompose((v) => !v); setComposeResult(null); }}
-                    title="Compose a note for approval"
-                    className={cn('mr-2 flex-none rounded-md p-1 hover:bg-muted',
-                      showCompose ? 'text-primary' : 'text-muted-foreground')}>
-              <Plus size={13} weight="bold" />
-            </button>
-          </div>
-
-          {/* Composing is a separate section from reviewing — it only ever
-              proposes (same POST /api/cxportal/note a script uses), and it
-              stays open independent of the review list's own collapse state
-              below, so writing a note doesn't require the queue to be open. */}
-          {showCompose && (
-            <div className="space-y-2 border-t border-border bg-muted/30 p-2.5">
-              <select value={composeProjectId}
-                      onChange={(e) => setComposeProjectId(e.target.value)}
-                      disabled={composeBusy}
-                      className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[11.5px] outline-none focus:border-primary/50">
-                <option value="">Other — type a customer name…</option>
-                {projectNames.map((p) => (
-                  <option key={p.id} value={p.id}>{p.customer} — {p.name}</option>
-                ))}
-              </select>
-
-              {/* Picking a linked project above guarantees the note lands on
-                  the right one — no name to mismatch. Free text is the
-                  fallback for a customer not yet a Warp project, and still
-                  goes through the same confidence-graded resolution
-                  everywhere else in the app refuses a weak match on. */}
-              {!composeProjectId && (
-                <input value={composeCustomer}
-                       onChange={(e) => setComposeCustomer(e.target.value)}
-                       disabled={composeBusy} placeholder="Customer name, exactly as CX Portal spells it…"
-                       className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-[11.5px] outline-none focus:border-primary/50" />
-              )}
-
-              <textarea value={composeText} onChange={(e) => setComposeText(e.target.value)}
-                        disabled={composeBusy} placeholder="Note text…" rows={4}
-                        className="w-full resize-none rounded-lg border border-border bg-background p-2 text-[11.5px] outline-none focus:border-primary/50" />
-
-              <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-                <input type="checkbox" checked={composeShareToSlack}
-                       onChange={(e) => setComposeShareToSlack(e.target.checked)}
-                       disabled={composeBusy} className="h-3.5 w-3.5" />
-                <SlackLogo size={12} weight="duotone" />
-                Also share to Slack (customer-visible)
-              </label>
-
-              {composeResult && (
-                <div className={cn('rounded-lg px-2 py-1.5 text-[10.5px]',
-                  composeResult.ok ? 'bg-ok/10 text-ok' : 'bg-bad/10 text-bad')}>
-                  {composeResult.message}
-                </div>
-              )}
-
-              <Button size="sm" onClick={submitCompose}
-                      disabled={composeBusy || (!composeProjectId && !composeCustomer.trim()) || !composeText.trim()}
-                      className="h-7 w-full rounded-md text-[11px]">
-                {composeBusy ? 'Proposing…' : 'Propose for approval'}
-              </Button>
-              <p className="text-[10px] leading-relaxed text-muted-foreground">
-                This only proposes — nothing is sent to CX Portal until you approve it below.
-              </p>
-            </div>
-          )}
-
-          {cxpOpen && (
-            <div className="max-h-[280px] space-y-1.5 overflow-y-auto px-2 pb-2">
-              {cxpNotes.length === 0 && (
-                <p className="px-1 py-2 text-[11px] leading-relaxed text-muted-foreground">
-                  Nothing pending. A script proposes a note with
-                  {' '}<code className="font-mono">warp.cxp.proposeNote()</code>; it lands here for review —
-                  nothing posts until you approve it.
-                </p>
-              )}
-              {cxpNotes.map((n) => {
-                let payload = null;
-                try { payload = JSON.parse(n.body); } catch { /* malformed, shown raw below */ }
-                return (
-                  <div key={n.id} className="rounded-xl border border-border bg-background p-2.5">
-                    <div className="mb-1 flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium">
-                        {payload?.customerName || n.title}
-                      </span>
-                      {payload?.shareToSlack && (
-                        <SlackLogo size={12} weight="duotone" className="flex-none text-muted-foreground"
-                                   title="Also shares to the customer's Slack" />
-                      )}
-                    </div>
-                    <p className="mb-2 line-clamp-3 text-[11.5px] leading-relaxed text-muted-foreground">
-                      {payload?.text || '(could not read this note\'s text)'}
-                    </p>
-                    <div className="flex gap-1.5">
-                      <Button size="sm" disabled={cxpBusy === n.id}
-                              onClick={() => decideCxpNote(n.id, 'approved')}
-                              className="h-6 flex-1 rounded-md text-[11px]">
-                        <Check size={11} weight="bold" /> {cxpBusy === n.id ? '…' : 'Post'}
-                      </Button>
-                      <Button size="sm" variant="outline" disabled={cxpBusy === n.id}
-                              onClick={() => decideCxpNote(n.id, 'rejected')}
-                              className="h-6 flex-none rounded-md px-2 text-[11px] text-bad hover:text-bad">
-                        <X size={11} weight="bold" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="flex flex-none gap-0.5 border-b border-border p-2">
-          {TABS.map(([v, l]) => (
-            <button key={v} onClick={() => setStatus(v)}
-              className={cn('flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11.5px] font-medium',
-                status === v ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted')}>
-              {l}
-              {d.counts?.[v] > 0 && (
-                <span className="rounded bg-muted px-1 font-mono text-[10px]">{d.counts[v]}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        <SectionSwitcher active="files" />
+        <StatusTabs status={status} onChange={setStatus} counts={d.counts} />
 
         {status === 'pending' && picked.size > 0 && (
           <div className="flex flex-none items-center gap-1.5 border-b border-border bg-muted/50 px-2 py-1.5">

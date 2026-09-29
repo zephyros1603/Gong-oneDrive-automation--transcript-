@@ -12,7 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { eq, desc, sql, inArray } from 'drizzle-orm';
+import { eq, desc, sql, inArray, and } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { approvals } from '../db/schema.js';
 import { getProject } from '../../projects.js';
@@ -26,20 +26,29 @@ const hydrate = (r) => r && ({
   project: r.projectId ? getProject(r.projectId)?.name || null : null,
 });
 
-export function listApprovals({ status = 'pending', limit = 100 } = {}) {
-  const rows = status === 'all'
-    ? db.select().from(approvals).orderBy(desc(approvals.createdAt)).limit(limit).all()
-    : db.select().from(approvals).where(eq(approvals.status, status))
-        .orderBy(desc(approvals.createdAt)).limit(limit).all();
+/**
+ * `kinds`, when given, scopes to just those kinds — what lets Approvals'
+ * Files page (`document`/`email`) and its separate Notes page (`cxp_note`)
+ * each see and count only their own rows, now that they're two pages
+ * instead of one list with a note carved out of it client-side.
+ */
+export function listApprovals({ status = 'pending', limit = 100, kinds } = {}) {
+  const conds = [];
+  if (status !== 'all') conds.push(eq(approvals.status, status));
+  if (kinds?.length) conds.push(inArray(approvals.kind, kinds));
+  const q = db.select().from(approvals);
+  const rows = (conds.length ? q.where(and(...conds)) : q)
+    .orderBy(desc(approvals.createdAt)).limit(limit).all();
   return rows.map(hydrate);
 }
 
 export const getApproval = (id) =>
   hydrate(db.select().from(approvals).where(eq(approvals.id, id)).get());
 
-export function counts() {
-  const rows = db.select({ status: approvals.status, n: sql`COUNT(*)` })
-    .from(approvals).groupBy(approvals.status).all();
+export function counts({ kinds } = {}) {
+  const q = db.select({ status: approvals.status, n: sql`COUNT(*)` }).from(approvals);
+  const rows = (kinds?.length ? q.where(inArray(approvals.kind, kinds)) : q)
+    .groupBy(approvals.status).all();
   return Object.fromEntries(rows.map((r) => [r.status, Number(r.n)]));
 }
 
@@ -57,6 +66,30 @@ export function propose(item) {
     status: 'pending',
     createdAt: Date.now(),
   }).run();
+  return getApproval(id);
+}
+
+/**
+ * Edit a still-pending note's text before deciding on it. Scoped tight on
+ * purpose: only `kind === 'cxp_note'`, only while `status === 'pending'` —
+ * once it's decided, silently rewriting what was actually approved or
+ * rejected would make `note` (the store's own audit trail) a lie. Every
+ * other payload field (projectId, customerName, shareToSlack) carries over
+ * untouched; this only ever replaces `text`.
+ */
+export function updateNoteText(id, text) {
+  const row = getApproval(id);
+  if (!row) throw new Error('no such approval');
+  if (row.kind !== 'cxp_note') throw new Error("only a note's text can be edited here");
+  if (row.status !== 'pending') throw new Error('only a pending note can be edited');
+
+  let payload;
+  try { payload = JSON.parse(row.body); } catch { payload = {}; }
+  const trimmed = String(text || '').trim();
+  if (!trimmed) throw new Error('text is required');
+  payload.text = trimmed;
+
+  db.update(approvals).set({ body: JSON.stringify(payload) }).where(eq(approvals.id, id)).run();
   return getApproval(id);
 }
 

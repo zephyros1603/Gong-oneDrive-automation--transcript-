@@ -51,6 +51,7 @@
     ".next-t4/types/**/*.ts",
     ".next-ui/types/**/*.ts",
     ".next-v/types/**/*.ts",
+    ".next-verify/types/**/*.ts",
     ".next-w/types/**/*.ts",
     ".next-w2/types/**/*.ts",
     ".next-w3/types/**/*.ts",
@@ -58,7 +59,7 @@
     ".next-w5/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-verify/types/**/*.ts"
+    ".next-verify2/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

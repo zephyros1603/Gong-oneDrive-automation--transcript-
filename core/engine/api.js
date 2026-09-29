@@ -21,6 +21,7 @@ import { proposeNote } from '../connectors/cxportal-note.js';
 import { startChatRun } from '../chat.js';
 import { notify } from '../notify.js';
 import { pullTranscripts } from '../gong/pull.js';
+import { organize } from '../../organize.js';
 import * as projectsStore from '../../projects.js';
 import * as library from '../../library.js';
 import * as runsStore from '../../runs.js';
@@ -77,6 +78,20 @@ export function buildApi({ onEvent = () => {} } = {}) {
           { mode, days, from, to, format, accountName, callIds, dryRun },
           (e) => onEvent({ type: 'log', message: `[gong] ${e.type}${e.message ? ` — ${e.message}` : ''}` })
         );
+      },
+      /**
+       * Regroup pulled transcripts into the per-customer tree —
+       * `core/workflow/projectContext.js`'s `updateProjectContext()` only
+       * ever reads Gong files out of this organized tree, never the raw
+       * day-folder pull output, so this has to run between a pull and a
+       * context update for anything newly pulled to actually be seen.
+       * Same primitive `/api/organize` and the scheduled pipeline use.
+       * `src`/`out` are deliberately not exposed — always the configured
+       * library, never a script-chosen path.
+       */
+      organize({ by = 'customer', mode = 'copy', dryRun = false } = {}) {
+        trace('gong.organize')({ by, mode, dryRun });
+        return organize({ by, mode, dryRun });
       },
     },
 
